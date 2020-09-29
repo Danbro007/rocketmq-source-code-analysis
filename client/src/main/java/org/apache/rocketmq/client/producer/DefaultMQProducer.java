@@ -70,25 +70,38 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      *
      * See {@linktourl http://rocketmq.apache.org/docs/core-concept/} for more discussion.
      */
+    // 生产者的组名
     private String producerGroup;
 
     /**
      * Just for testing or demo program
+     *
+     *  默认的topic
+     *
      */
     private String createTopicKey = TopicValidator.AUTO_CREATE_TOPIC_KEY_TOPIC;
 
     /**
      * Number of queues to create per default topic.
+     *
+     * 默认的每个主题的队列数
+     *
      */
     private volatile int defaultTopicQueueNums = 4;
 
     /**
      * Timeout for sending messages.
+     *
+     * 发送消息的超时时间
+     *
      */
     private int sendMsgTimeout = 3000;
 
     /**
      * Compress message body threshold, namely, message body larger than 4k will be compressed on default.
+     *
+     * 消息长度超过这个阈值会被压缩，默认是 4 KB
+     *
      */
     private int compressMsgBodyOverHowmuch = 1024 * 4;
 
@@ -96,6 +109,9 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      * Maximum number of retry to perform internally before claiming sending failure in synchronous mode. </p>
      *
      * This may potentially cause message duplication which is up to application developers to resolve.
+     *
+     * 消息同步发送失败重试次数
+     *
      */
     private int retryTimesWhenSendFailed = 2;
 
@@ -103,16 +119,25 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      * Maximum number of retry to perform internally before claiming sending failure in asynchronous mode. </p>
      *
      * This may potentially cause message duplication which is up to application developers to resolve.
+     *
+     * 消息异步发送失败重试次数
+     *
      */
     private int retryTimesWhenSendAsyncFailed = 2;
 
     /**
      * Indicate whether to retry another broker on sending failure internally.
+     *
+     * 消息重试时选择另外一个Broker时，是否不等待存储结果就返回，默认为false
+     *
      */
     private boolean retryAnotherBrokerWhenNotStoreOK = false;
 
     /**
      * Maximum allowed message size in bytes.
+     *
+     * 允许发送消息的最大容量，默认是 4 MB。
+     *
      */
     private int maxMessageSize = 1024 * 1024 * 4; // 4M
 
@@ -243,6 +268,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
         boolean enableMsgTrace, final String customizedTraceTopic) {
         this.namespace = namespace;
         this.producerGroup = producerGroup;
+        // 真正的消费者
         defaultMQProducerImpl = new DefaultMQProducerImpl(this, rpcHook);
         //if client open the message trace feature
         if (enableMsgTrace) {
@@ -260,7 +286,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
 
     /**
      * Start this producer instance. </p>
-     *
+     * 开启消费者
      * <strong> Much internal initializing procedures are carried out to make this instance prepared, thus, it's a must
      * to invoke this method before sending or querying messages. </strong> </p>
      *
@@ -268,7 +294,9 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      */
     @Override
     public void start() throws MQClientException {
+        // 设置消费者组名
         this.setProducerGroup(withNamespace(this.producerGroup));
+        // 开启消费者
         this.defaultMQProducerImpl.start();
         if (null != traceDispatcher) {
             try {
