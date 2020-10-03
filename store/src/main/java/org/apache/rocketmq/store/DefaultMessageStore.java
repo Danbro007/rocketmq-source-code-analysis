@@ -65,56 +65,60 @@ import org.apache.rocketmq.store.stats.BrokerStatsManager;
 
 public class DefaultMessageStore implements MessageStore {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
-
+    // 消息存储配置类
     private final MessageStoreConfig messageStoreConfig;
     // CommitLog
     private final CommitLog commitLog;
-
+    // 存储 topic 和对应的消费队列
     private final ConcurrentMap<String/* topic */, ConcurrentMap<Integer/* queueId */, ConsumeQueue>> consumeQueueTable;
-
+    // 消息队列刷盘服务类
     private final FlushConsumeQueueService flushConsumeQueueService;
-
+    // 清除 commitlog 服务类
     private final CleanCommitLogService cleanCommitLogService;
-
+    // 清除消费者队列服务类
     private final CleanConsumeQueueService cleanConsumeQueueService;
-
+    // 索引实现类
     private final IndexService indexService;
-
+    // MappedFile 分配服务
     private final AllocateMappedFileService allocateMappedFileService;
-
+    //CommitLog消息分发,根据CommitLog文件构建ConsumerQueue、IndexFile文件
     private final ReputMessageService reputMessageService;
-
+    // 高可用实现类
     private final HAService haService;
-
+    // 消息调度实现类
     private final ScheduleMessageService scheduleMessageService;
-
+    // 消息存储服务
     private final StoreStatsService storeStatsService;
-
+    //消息堆外内存缓存
     private final TransientStorePool transientStorePool;
-
+    // 运行状态标识类
     private final RunningFlags runningFlags = new RunningFlags();
+    // 系统时间类
     private final SystemClock systemClock = new SystemClock();
-
+    // 定时任务线程池
     private final ScheduledExecutorService scheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("StoreScheduledThread"));
+    // broker 状态管理器
     private final BrokerStatsManager brokerStatsManager;
+    //消息拉取长轮询模式消息达到监听器
     private final MessageArrivingListener messageArrivingListener;
+    // broker 配置类
     private final BrokerConfig brokerConfig;
 
     private volatile boolean shutdown = true;
-
+    //文件刷盘监测点
     private StoreCheckpoint storeCheckpoint;
-
+    // 打印时间原子类
     private AtomicLong printTimes = new AtomicLong(0);
-
+    //CommitLog文件转发请求
     private final LinkedList<CommitLogDispatcher> dispatcherList;
-
+    // 随机访问文件
     private RandomAccessFile lockFile;
-
+    // 文件锁
     private FileLock lock;
-
+    // 正常关闭标识类
     boolean shutDownNormal = false;
-
+    // 磁盘检查调度线程服务类
     private final ScheduledExecutorService diskCheckScheduledExecutorService =
             Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("DiskCheckScheduledThread"));
 
@@ -356,12 +360,18 @@ public class DefaultMessageStore implements MessageStore {
         }
     }
 
+    /**
+     * 检查消息的长度
+     * @param msg 被检查的消息
+     * @return 检查结果
+     */
     private PutMessageStatus checkMessage(MessageExtBrokerInner msg) {
+        // 判断消息的主题长度是否超过 127 个字节
         if (msg.getTopic().length() > Byte.MAX_VALUE) {
             log.warn("putMessage message topic length too long " + msg.getTopic().length());
             return PutMessageStatus.MESSAGE_ILLEGAL;
         }
-
+        // 判断消息的属性长度是否超过 32767 字节
         if (msg.getPropertiesString() != null && msg.getPropertiesString().length() > Short.MAX_VALUE) {
             log.warn("putMessage message properties length too long " + msg.getPropertiesString().length());
             return PutMessageStatus.MESSAGE_ILLEGAL;
@@ -384,19 +394,21 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     private PutMessageStatus checkStoreStatus() {
+        // 存储器关闭了则返回 SERVICE_NOT_AVAILABLE 状态
         if (this.shutdown) {
             log.warn("message store has shutdown, so putMessage is forbidden");
             return PutMessageStatus.SERVICE_NOT_AVAILABLE;
         }
-
+        // 如果 Broker 角色是从机角色则返回 SERVICE_NOT_AVAILABLE 状态
         if (BrokerRole.SLAVE == this.messageStoreConfig.getBrokerRole()) {
+            // 打印计数器
             long value = this.printTimes.getAndIncrement();
             if ((value % 50000) == 0) {
                 log.warn("message store has shutdown, so putMessage is forbidden");
             }
             return PutMessageStatus.SERVICE_NOT_AVAILABLE;
         }
-
+        // 如果消息存储器是正在写入状态则返回 SERVICE_NOT_AVAILABLE 状态
         if (!this.runningFlags.isWriteable()) {
             long value = this.printTimes.getAndIncrement();
             if ((value % 50000) == 0) {
@@ -406,7 +418,7 @@ public class DefaultMessageStore implements MessageStore {
         } else {
             this.printTimes.set(0);
         }
-
+        // 判断系统 PageCache 区是否被占用
         if (this.isOSPageCacheBusy()) {
             return PutMessageStatus.OS_PAGECACHE_BUSY;
         }
@@ -473,14 +485,22 @@ public class DefaultMessageStore implements MessageStore {
         return resultFuture;
     }
 
+    /**
+     * 存储消息
+     * @param msg Message instance to store
+     * @return 存储结果
+     */
     @Override
     public PutMessageResult putMessage(MessageExtBrokerInner msg) {
+        // 返回消息存储器的状态
         PutMessageStatus checkStoreStatus = this.checkStoreStatus();
+        // 如果存储器不是 PUT_OK 状态则把返回的状态封装成 PutMessageResult 对象
         if (checkStoreStatus != PutMessageStatus.PUT_OK) {
             return new PutMessageResult(checkStoreStatus, null);
         }
-
+        // 检查消息的主题和属性长度是否超过规定的长度
         PutMessageStatus msgCheckStatus = this.checkMessage(msg);
+        //
         if (msgCheckStatus == PutMessageStatus.MESSAGE_ILLEGAL) {
             return new PutMessageResult(msgCheckStatus, null);
         }
