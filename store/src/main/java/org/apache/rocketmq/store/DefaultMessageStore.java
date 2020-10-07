@@ -494,26 +494,29 @@ public class DefaultMessageStore implements MessageStore {
     public PutMessageResult putMessage(MessageExtBrokerInner msg) {
         // 返回消息存储器的状态
         PutMessageStatus checkStoreStatus = this.checkStoreStatus();
-        // 如果存储器不是 PUT_OK 状态则把返回的状态封装成 PutMessageResult 对象
+        // 如果存储器不是 PUT_OK 状态则把返回的状态封装成 PutMessageResult 对象并返回
         if (checkStoreStatus != PutMessageStatus.PUT_OK) {
             return new PutMessageResult(checkStoreStatus, null);
         }
         // 检查消息的主题和属性长度是否超过规定的长度
         PutMessageStatus msgCheckStatus = this.checkMessage(msg);
-        //
+        // 如果消息检查结果是非法既消息主题或者属性长度超过规定长度则返回
         if (msgCheckStatus == PutMessageStatus.MESSAGE_ILLEGAL) {
             return new PutMessageResult(msgCheckStatus, null);
         }
-
+        // 记录当前时间
         long beginTime = this.getSystemClock().now();
+        // 把消息存储在 commitLog 里
         PutMessageResult result = this.commitLog.putMessage(msg);
+        // 存储耗时
         long elapsedTime = this.getSystemClock().now() - beginTime;
+        // 如果运行时间超过 500 ms 则打印日志
         if (elapsedTime > 500) {
             log.warn("not in lock elapsed time(ms)={}, bodyLength={}", elapsedTime, msg.getBody().length);
         }
-
+        // 统计存储消息的耗时
         this.storeStatsService.setPutMessageEntireTimeMax(elapsedTime);
-
+        // 如果存储消息失败了则把统计存储失败的次数 + 1
         if (null == result || !result.isOk()) {
             this.storeStatsService.getPutMessageFailedTimes().incrementAndGet();
         }

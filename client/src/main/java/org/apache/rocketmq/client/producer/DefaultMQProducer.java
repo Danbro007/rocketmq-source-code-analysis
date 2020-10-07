@@ -920,7 +920,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
         }
         return this.defaultMQProducerImpl.queryMessageByUniqKey(withNamespace(topic), msgId);
     }
-
+    // 批量发送消息
     @Override
     public SendResult send(
         Collection<Message> msgs) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
@@ -964,16 +964,21 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     public void setAsyncSenderExecutor(final ExecutorService asyncSenderExecutor) {
         this.defaultMQProducerImpl.setAsyncSenderExecutor(asyncSenderExecutor);
     }
-
+    // 把多个 message 对象封装成 MessageBatch
     private MessageBatch batch(Collection<Message> msgs) throws MQClientException {
         MessageBatch msgBatch;
         try {
             msgBatch = MessageBatch.generateFromList(msgs);
+            // 遍历所有 message
             for (Message message : msgBatch) {
+                // 对 message 的主题名进行检查
                 Validators.checkMessage(message, this);
+                // 设置 message 的 UNIQ_KEY 属性
                 MessageClientIDSetter.setUniqID(message);
+                // 设置 message 主题
                 message.setTopic(withNamespace(message.getTopic()));
             }
+            // 对多个消息进行编码并设置为消息内容
             msgBatch.setBody(msgBatch.encode());
         } catch (Exception e) {
             throw new MQClientException("Failed to initiate the MessageBatch", e);

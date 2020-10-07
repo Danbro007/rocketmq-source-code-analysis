@@ -55,6 +55,9 @@ public class MappedFile extends ReferenceResource {
     protected FileChannel fileChannel;
     /**
      * Message will put to here first, and then reput to FileChannel if writeBuffer is not null.
+     *
+     * 如果写缓存不为 null 则会把消息将先放在写缓存里，然后重新放入FileChannel
+     *
      */
     protected ByteBuffer writeBuffer = null;
     protected TransientStorePool transientStorePool = null;
@@ -196,25 +199,37 @@ public class MappedFile extends ReferenceResource {
         return appendMessagesInner(messageExtBatch, cb);
     }
 
+    /**
+     * 在 MappedFile 里存储消息
+     * @param messageExt 要存储的消息
+     * @param cb 存储消息后要执行的回调函数
+     * @return 存储结果
+     */
     public AppendMessageResult appendMessagesInner(final MessageExt messageExt, final AppendMessageCallback cb) {
         assert messageExt != null;
         assert cb != null;
-
+        // 当前写入指针的偏移量
         int currentPos = this.wrotePosition.get();
-
+        // 如果写入指针大于文件的大小则直接返回错误结果
         if (currentPos < this.fileSize) {
+            // 如果 writeBuffer 不为 null 则会通过 writeBuffer 创建一个新的 ByteBuffer 否则会通过 mappedByteBuffer 来创建新的 ByteBuffer
             ByteBuffer byteBuffer = writeBuffer != null ? writeBuffer.slice() : this.mappedByteBuffer.slice();
+            // 在 ByteBuffer 里标记当前的位置
             byteBuffer.position(currentPos);
             AppendMessageResult result;
             if (messageExt instanceof MessageExtBrokerInner) {
+                // 执行回调函数，它的作用是把消息序列化并写入到 ByteBuffer 里
                 result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos, (MessageExtBrokerInner) messageExt);
             } else if (messageExt instanceof MessageExtBatch) {
                 result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos, (MessageExtBatch) messageExt);
             } else {
                 return new AppendMessageResult(AppendMessageStatus.UNKNOWN_ERROR);
             }
+            // 把写入的指针更新
             this.wrotePosition.addAndGet(result.getWroteBytes());
+            // 记录存储时间
             this.storeTimestamp = result.getStoreTimestamp();
+            // 返回结果
             return result;
         }
         log.error("MappedFile.appendMessage return null, wrotePosition: {} fileSize: {}", currentPos, this.fileSize);
