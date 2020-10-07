@@ -523,7 +523,7 @@ public class DefaultMessageStore implements MessageStore {
 
         return result;
     }
-
+    //批量存储消息
     @Override
     public PutMessageResult putMessages(MessageExtBatch messageExtBatch) {
         PutMessageStatus checkStoreStatus = this.checkStoreStatus();

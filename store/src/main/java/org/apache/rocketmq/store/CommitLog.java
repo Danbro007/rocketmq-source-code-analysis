@@ -782,7 +782,7 @@ public class CommitLog {
         msg.setStoreTimestamp(System.currentTimeMillis());
         // Set the message body BODY CRC (consider the most appropriate setting
         // on the client)
-        // 设置消息体校验器
+        // 设置消息体 CRC 校验器
         msg.setBodyCRC(UtilAll.crc32(msg.getBody()));
         // Back to Results
         // 消息存储结果
@@ -792,7 +792,7 @@ public class CommitLog {
 
         String topic = msg.getTopic();
         int queueId = msg.getQueueId();
-        //
+        //事务类型
         final int tranType = MessageSysFlag.getTransactionValue(msg.getSysFlag());
         if (tranType == MessageSysFlag.TRANSACTION_NOT_TYPE
             || tranType == MessageSysFlag.TRANSACTION_COMMIT_TYPE) {
@@ -828,6 +828,7 @@ public class CommitLog {
         long elapsedTimeInLock = 0;
 
         MappedFile unlockMappedFile = null;
+        // 获取内存映射文件
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile();
         // 存储消息上锁，防止其他线程存储相同的消息。
         putMessageLock.lock(); //spin or ReentrantLock ,depending on store config
@@ -839,23 +840,23 @@ public class CommitLog {
             // global
             // 设置消息的存储时间
             msg.setStoreTimestamp(beginLockTimestamp);
-            // 如果 MappedFile 为 null 或者已经满了则会创建一个新的 MappedFile
+            // 如果内存映射文件为 null 或者已经满了则会创建一个新的内存映射文件
             if (null == mappedFile || mappedFile.isFull()) {
                 mappedFile = this.mappedFileQueue.getLastMappedFile(0); // Mark: NewFile may be cause noise
             }
-            // 创建失败则打印错误日志并返回创建 MappedFile 文件失败的结果
+            // 创建失败则打印错误日志并返回创建内存映射文件失败的结果
             if (null == mappedFile) {
                 log.error("create mapped file1 error, topic: " + msg.getTopic() + " clientAddr: " + msg.getBornHostString());
                 beginTimeInLock = 0;
                 return new PutMessageResult(PutMessageStatus.CREATE_MAPEDFILE_FAILED, null);
             }
-            // 把消息追加存储到 MappedFile 文件里，并放入添加消息后回调的函数
+            // 把消息追加存储到内存映射文件里，并放入添加消息后回调的函数
             result = mappedFile.appendMessage(msg, this.appendMessageCallback);
             // 判断存储消息后的结果
             switch (result.getStatus()) {
                 case PUT_OK:
                     break;
-                // 如果返回的结果是 END_OF_FILE 则说明 MappedFile 满了，需要创建一个新的 MappedFile 文件
+                // 如果返回的结果是 END_OF_FILE 则说明内存映射文件满了，需要创建一个新的内存映射文件重新写入消息
                 case END_OF_FILE:
                     unlockMappedFile = mappedFile;
                     // Create a new file, re-write the message
@@ -867,7 +868,7 @@ public class CommitLog {
                         beginTimeInLock = 0;
                         return new PutMessageResult(PutMessageStatus.CREATE_MAPEDFILE_FAILED, result);
                     }
-                    // 创建成功则把消息放入新创建的 MappedFile 文件里
+                    // 创建成功则把消息放入新创建的内存映射文件里
                     result = mappedFile.appendMessage(msg, this.appendMessageCallback);
                     break;
                 case MESSAGE_SIZE_EXCEEDED:
@@ -899,11 +900,12 @@ public class CommitLog {
 
         PutMessageResult putMessageResult = new PutMessageResult(PutMessageStatus.PUT_OK, result);
 
-        // Statistics
+        // 统计数据
         storeStatsService.getSinglePutMessageTopicTimesTotal(msg.getTopic()).incrementAndGet();
         storeStatsService.getSinglePutMessageTopicSizeTotal(topic).addAndGet(result.getWroteBytes());
-
+        // 刷盘
         handleDiskFlush(result, putMessageResult, msg);
+        // 处理高可用
         handleHA(result, putMessageResult, msg);
 
         return putMessageResult;

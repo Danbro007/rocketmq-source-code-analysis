@@ -200,7 +200,7 @@ public class MappedFile extends ReferenceResource {
     }
 
     /**
-     * 在 MappedFile 里存储消息
+     * 在映射文件里存储消息
      * @param messageExt 要存储的消息
      * @param cb 存储消息后要执行的回调函数
      * @return 存储结果
