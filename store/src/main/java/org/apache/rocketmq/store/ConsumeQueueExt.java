@@ -192,20 +192,25 @@ public class ConsumeQueueExt {
     public long put(final CqExtUnit cqExtUnit) {
         final int retryTimes = 3;
         try {
+            // 计算出数据存储大小
             int size = cqExtUnit.calcUnitSize();
+            // 超过单个存储单元的大小则打印日志并返回存储失败的值
             if (size > CqExtUnit.MAX_EXT_UNIT_SIZE) {
                 log.error("Size of cq ext unit is greater than {}, {}", CqExtUnit.MAX_EXT_UNIT_SIZE, cqExtUnit);
                 return 1;
             }
+            //
             if (this.mappedFileQueue.getMaxOffset() + size > MAX_REAL_OFFSET) {
                 log.warn("Capacity of ext is maximum!{}, {}", this.mappedFileQueue.getMaxOffset(), size);
                 return 1;
             }
             // unit size maybe change.but, the same most of the time.
             if (this.tempContainer == null || this.tempContainer.capacity() < size) {
+                // 分配指定空间给 tempContainer
                 this.tempContainer = ByteBuffer.allocate(size);
             }
-
+            // 最多重试三次，先获取最新的 MappedFile，通过获取的 MappedFile 的写指针，计算出 MappedFile 剩下的空间
+            //
             for (int i = 0; i < retryTimes; i++) {
                 MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile();
 
@@ -221,13 +226,14 @@ public class ConsumeQueueExt {
                 final int blankSize = this.mappedFileSize - wrotePosition - END_BLANK_DATA_LENGTH;
 
                 // check whether has enough space.
+                // 再次检查是否有足够的空间，没有的话会重试。
                 if (size > blankSize) {
                     fullFillToEnd(mappedFile, wrotePosition);
                     log.info("No enough space(need:{}, has:{}) of file {}, so fill to end",
                         size, blankSize, mappedFile.getFileName());
                     continue;
                 }
-
+                // 先把 cqExtUnit 里的数据写入到 tempContainer，然后通过 tempContainer 把数据写入到文件上，返回地址。
                 if (mappedFile.appendMessage(cqExtUnit.write(this.tempContainer), 0, size)) {
                     return decorate(wrotePosition + mappedFile.getFileFromOffset());
                 }

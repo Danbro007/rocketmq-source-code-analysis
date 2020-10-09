@@ -90,9 +90,13 @@ public class IndexFile {
     }
 
     public boolean putKey(final String key, final long phyOffset, final long storeTimestamp) {
+        // 当前已创建的 IndexFile 文件数没有超过indexNum ，indexNum 默认为 5000000 * 4
         if (this.indexHeader.getIndexCount() < this.indexNum) {
+            // 获得消息 Key 的 hashCode
             int keyHash = indexKeyHashMethod(key);
+            // 对 hashCode 取模获取 slot 默认 hashSlotNum 为 5000000。
             int slotPos = keyHash % this.hashSlotNum;
+            // absSlotPos = 40 + slotPos + 4
             int absSlotPos = IndexHeader.INDEX_HEADER_SIZE + slotPos * hashSlotSize;
 
             FileLock fileLock = null;
@@ -101,6 +105,7 @@ public class IndexFile {
 
                 // fileLock = this.fileChannel.lock(absSlotPos, hashSlotSize,
                 // false);
+                // 通过计算出 absSlotPos 获得对应的 slotValue
                 int slotValue = this.mappedByteBuffer.getInt(absSlotPos);
                 if (slotValue <= invalidIndex || slotValue > this.indexHeader.getIndexCount()) {
                     slotValue = invalidIndex;

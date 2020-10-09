@@ -23,12 +23,13 @@ public class SelectMappedBufferResult {
     private final long startOffset;
     // 缓冲区
     private final ByteBuffer byteBuffer;
-    // 缓冲区大小
+    // startOffset 到最大可读数据之间的长度
     private int size;
     // 映射文件
     private MappedFile mappedFile;
 
     public SelectMappedBufferResult(long startOffset, ByteBuffer byteBuffer, int size, MappedFile mappedFile) {
+        // 消息起始偏移量
         this.startOffset = startOffset;
         this.byteBuffer = byteBuffer;
         this.size = size;

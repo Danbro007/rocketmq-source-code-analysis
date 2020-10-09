@@ -136,14 +136,15 @@ public class MappedFileQueue {
         // 执行删除
         this.deleteExpiredFile(willRemoveFiles);
     }
-
+    // 真正执行删除过期文件
     void deleteExpiredFile(List<MappedFile> files) {
 
         if (!files.isEmpty()) {
-
+            // 迭代器遍历每个过期文件
             Iterator<MappedFile> iterator = files.iterator();
             while (iterator.hasNext()) {
                 MappedFile cur = iterator.next();
+                // 如果 MappedFile 数组里没有它则这个文件删除
                 if (!this.mappedFiles.contains(cur)) {
                     iterator.remove();
                     log.info("This mappedFile {} is not contained by mappedFiles, so skip it.", cur.getFileName());
@@ -161,7 +162,7 @@ public class MappedFileQueue {
     }
 
     public boolean load() {
-        // CommitLog 的存储路径
+        // 存储路径
         File dir = new File(this.storePath);
         File[] files = dir.listFiles();
         if (files != null) {
@@ -334,7 +335,7 @@ public class MappedFileQueue {
         }
         return 0;
     }
-    // 获取映射文件的写入指针
+    // 获取最新映射文件的写指针
     public long getMaxWrotePosition() {
         MappedFile mappedFile = getLastMappedFile();
         if (mappedFile != null) {
@@ -360,7 +361,7 @@ public class MappedFileQueue {
 
         }
     }
-    // 通过时间来删除过期文件
+    // 通过过期时间来删除过期文件
     public int deleteExpiredFileByTime(final long expiredTime,
         final int deleteFilesInterval,
         final long intervalForcibly,
@@ -390,9 +391,10 @@ public class MappedFileQueue {
                         if (files.size() >= DELETE_FILES_BATCH_MAX) {
                             break;
                         }
-                        // 删除文件间隔
+                        // 删除文件间隔大于 0 并且还有剩余文件需要被删除
                         if (deleteFilesInterval > 0 && (i + 1) < mfsLength) {
                             try {
+                                // 等待 100 ms
                                 Thread.sleep(deleteFilesInterval);
                             } catch (InterruptedException e) {
                             }
@@ -471,16 +473,20 @@ public class MappedFileQueue {
 
         return result;
     }
-    // 提交数据
+    // 提交数据到 FileChannel ,前提是 transientStorePoolEnable 开启了
     public boolean commit(final int commitLeastPages) {
         boolean result = true;
-        // 通过消息偏移量找到映射文件
+        // 通过提交偏移量找到对应 MappedFile
         MappedFile mappedFile = this.findMappedFileByOffset(this.committedWhere, this.committedWhere == 0);
-        // 如果找到了映射文件则
+        // 如果找到了映射文件则把消息提交到 FileChannel
         if (mappedFile != null) {
+            // 提交数据后的指针，次数数据已经在 FileChannel 里了等到这刷盘
             int offset = mappedFile.commit(commitLeastPages);
+            // 当前消息偏移量 + 已提交的偏移量
             long where = mappedFile.getFileFromOffset() + offset;
+            // 如果相等则为 true，否则为 false
             result = where == this.committedWhere;
+            // 更新已提交数据的指针
             this.committedWhere = where;
         }
 
@@ -583,8 +589,9 @@ public class MappedFileQueue {
 
         return size;
     }
-
+    // 删除第一个文件
     public boolean retryDeleteFirstFile(final long intervalForcibly) {
+        // 把第一个 MappedFile 文件关闭，如果成功把这个文件放入过期文件列表里。
         MappedFile mappedFile = this.getFirstMappedFile();
         if (mappedFile != null) {
             if (!mappedFile.isAvailable()) {

@@ -39,14 +39,20 @@ public abstract class ReferenceResource {
     public boolean isAvailable() {
         return this.available;
     }
-    // 映射文件销毁方法
+
+    /**
+     * MappedFile 文件的销毁方法
+     * @param intervalForcibly 拒绝被销毁的最大存活时间
+     */
     public void shutdown(final long intervalForcibly) {
         if (this.available) {
             this.available = false;
             this.firstShutdownTimestamp = System.currentTimeMillis();
             // 释放资源
             this.release();
-        } else if (this.getRefCount() > 0) {
+        }
+        // 把当前 MappedFile 的被应用数设置为负的
+        else if (this.getRefCount() > 0) {
             if ((System.currentTimeMillis() - this.firstShutdownTimestamp) >= intervalForcibly) {
                 this.refCount.set(-1000 - this.getRefCount());
                 this.release();

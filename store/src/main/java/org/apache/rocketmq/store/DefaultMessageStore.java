@@ -189,7 +189,7 @@ public class DefaultMessageStore implements MessageStore {
         boolean result = true;
 
         try {
-            // 先判断是否目录存在 abort 文件，存在说明上次是非正常关闭，不存在则是正常关闭。
+            // 先判断是否 store 目录下存在 abort 文件，存在说明上次是非正常关闭，不存在则是正常关闭。
             boolean lastExitOK = !this.isTempFileExist();
             log.info("last shutdown {}", lastExitOK ? "normally" : "abnormally");
             // 加载延时队列
@@ -202,7 +202,7 @@ public class DefaultMessageStore implements MessageStore {
             result = result && this.commitLog.load();
 
             // load Consume Queue
-            // 读取 ConsumeQueue
+            // 读取 ConsumeQueue 到内存中
             result = result && this.loadConsumeQueue();
             if (result) {
                 // 通过存储的根路径获取存储检查点
@@ -229,7 +229,7 @@ public class DefaultMessageStore implements MessageStore {
 
     /**
      *
-     * 开启存储
+     * 开启存储服务
      *
      * @throws Exception
      */
@@ -274,7 +274,7 @@ public class DefaultMessageStore implements MessageStore {
             }
             log.info("[SetReputOffset] maxPhysicalPosInLogicQueue={} clMinOffset={} clMaxOffset={} clConfirmedOffset={}",
                 maxPhysicalPosInLogicQueue, this.commitLog.getMinOffset(), this.commitLog.getMaxOffset(), this.commitLog.getConfirmOffset());
-            //设置CommitLog内存中最大偏移量
+            //设置转发服务的消息起始偏移量
             this.reputMessageService.setReputFromOffset(maxPhysicalPosInLogicQueue);
             // 另起一个线程开启消息转发服务，转发到 IndexFile 和 ConsumeQueue
             this.reputMessageService.start();
@@ -1323,7 +1323,7 @@ public class DefaultMessageStore implements MessageStore {
         boolean result = file.createNewFile();
         log.info(fileName + (result ? " create OK" : " already exists"));
     }
-    // 添加定时任务
+    // 添加几个定时任务
     private void addScheduleTask() {
         // 开启定时清理过期文件的任务，默认是每 10 s 执行一次。
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
@@ -1400,9 +1400,9 @@ public class DefaultMessageStore implements MessageStore {
         File file = new File(fileName);
         return file.exists();
     }
-
+    // 加载 ConsumeQueue 目录下的存储文件
     private boolean loadConsumeQueue() {
-        // 消费队列目录路径
+        // ConsumeQueue 目录路径
         File dirLogic = new File(StorePathConfigHelper.getStorePathConsumeQueue(this.messageStoreConfig.getStorePathRootDir()));
         File[] fileTopicList = dirLogic.listFiles();
         if (fileTopicList != null) {
@@ -1442,7 +1442,7 @@ public class DefaultMessageStore implements MessageStore {
 
         return true;
     }
-
+    // 文件恢复
     private void recover(final boolean lastExitOK) {
         // 消费队列的最大物理偏移量
         long maxPhyOffsetOfConsumeQueue = this.recoverConsumeQueue();
@@ -1547,7 +1547,7 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     public void putMessagePositionInfo(DispatchRequest dispatchRequest) {
-        // 通过 dispatchRequest 的主题和队列 Id 找到对应的消费队列，然后由找到的队列消费
+        // 通过 dispatchRequest 的 主题-队列ID 找到对应的消费队列，然后由找到的队列消费
         ConsumeQueue cq = this.findConsumeQueue(dispatchRequest.getTopic(), dispatchRequest.getQueueId());
         cq.putMessagePositionInfoWrapper(dispatchRequest);
     }
@@ -1664,22 +1664,24 @@ public class DefaultMessageStore implements MessageStore {
         // 真正执行清理过期文件
         private void deleteExpiredFiles() {
             int deleteCount = 0;
-            // 文件的存活时间，默认为 72 小时
+            // 获取文件的存活时间，默认为 72 小时
             long fileReservedTime = DefaultMessageStore.this.getMessageStoreConfig().getFileReservedTime();
             // 删除物理文件的时间间隔
             int deletePhysicFilesInterval = DefaultMessageStore.this.getMessageStoreConfig().getDeleteCommitLogFilesInterval();
-            //线程被占用,第一次拒绝删除后能保留的最大时间,超过该时间,文件将被强制删除，默认为 120 s。
+            //线程被占用,执行第一次拒绝删除后能保留的最大时间,超过该时间,文件将被强制删除，默认为 120 s。
             int destroyMapedFileIntervalForcibly = DefaultMessageStore.this.getMessageStoreConfig().getDestroyMapedFileIntervalForcibly();
-
+            // 定时删除文件任务的时间是否到了
             boolean timeup = this.isTimeToDelete();
+            // 磁盘空间是否不足够，如果超过 85 % 会立即执行磁盘清理工作。
             boolean spacefull = this.isSpaceToDelete();
+            // 人工删除次数是否为 0 ，一开始的默认次是 20 次。
             boolean manualDelete = this.manualDeleteFileSeveralTimes > 0;
-            // 文件存在超时 or 磁盘空间已满 or 人工手动删除
+            // 要执行定时删除任务了 or 磁盘空间达到一定使用率 or 人工手动删除大于 0
             if (timeup || spacefull || manualDelete) {
-
+                // 优先是人工删除文件
                 if (manualDelete)
                     this.manualDeleteFileSeveralTimes--;
-
+                // 是否立即清除标志位
                 boolean cleanAtOnce = DefaultMessageStore.this.getMessageStoreConfig().isCleanFileForciblyEnable() && this.cleanImmediately;
 
                 log.info("begin to delete before {} hours file. timeup: {} spacefull: {} manualDeleteFileSeveralTimes: {} cleanAtOnce: {}",
@@ -1688,21 +1690,25 @@ public class DefaultMessageStore implements MessageStore {
                     spacefull,
                     manualDeleteFileSeveralTimes,
                     cleanAtOnce);
-
+                // 文件保留的时间
                 fileReservedTime *= 60 * 60 * 1000;
-
+                //
                 deleteCount = DefaultMessageStore.this.commitLog.deleteExpiredFile(fileReservedTime, deletePhysicFilesInterval,
                     destroyMapedFileIntervalForcibly, cleanAtOnce);
                 if (deleteCount > 0) {
-                } else if (spacefull) {
+                }
+                // 磁盘空间不够了
+                else if (spacefull) {
                     log.warn("disk space will be full soon, but delete file failed.");
                 }
             }
         }
-
+        // 重新删除
         private void redeleteHangedFile() {
+            // 间隔 120 s
             int interval = DefaultMessageStore.this.getMessageStoreConfig().getRedeleteHangedFileInterval();
             long currentTimestamp = System.currentTimeMillis();
+            // 大于间隔时间
             if ((currentTimestamp - this.lastRedeleteTimestamp) > interval) {
                 this.lastRedeleteTimestamp = currentTimestamp;
                 int destroyMapedFileIntervalForcibly =
@@ -1717,7 +1723,9 @@ public class DefaultMessageStore implements MessageStore {
         }
 
         private boolean isTimeToDelete() {
+            // 定时删除文件的时间，默认为每天凌晨 4 点
             String when = DefaultMessageStore.this.getMessageStoreConfig().getDeleteWhen();
+            // 判断是否到定时任务时间
             if (UtilAll.isItTimeToDo(when)) {
                 DefaultMessageStore.log.info("it's time to reclaim disk space, " + when);
                 return true;
@@ -1725,7 +1733,7 @@ public class DefaultMessageStore implements MessageStore {
 
             return false;
         }
-        // 当磁盘空间不足时执行删除文件的操作
+        // 判断磁盘空间是否不足，如果磁盘使用率超过 85 % 之后会立即执行磁盘清理。
         private boolean isSpaceToDelete() {
             // 磁盘空间最大使用率，默认为 75 %
             double ratio = DefaultMessageStore.this.getMessageStoreConfig().getDiskMaxUsedSpaceRatio() / 100.0;
@@ -1989,13 +1997,14 @@ public class DefaultMessageStore implements MessageStore {
                 SelectMappedBufferResult result = DefaultMessageStore.this.commitLog.getData(reputFromOffset);
                 if (result != null) {
                     try {
+                        // 更新起始偏移量
                         this.reputFromOffset = result.getStartOffset();
                         // 遍历 result 里的消息，并把它们封装成 DispatchRequest 对象
                         for (int readSize = 0; readSize < result.getSize() && doNext; ) {
                             DispatchRequest dispatchRequest =
                                 DefaultMessageStore.this.commitLog.checkMessageAndReturnSize(result.getByteBuffer(), false, false);
                             int size = dispatchRequest.getBufferSize() == -1 ? dispatchRequest.getMsgSize() : dispatchRequest.getBufferSize();
-
+                            // 判断消息是否解析成功
                             if (dispatchRequest.isSuccess()) {
                                 if (size > 0) {
                                     // 执行消息的分发既发送到 ConsumeQueue 和 IndexFile
@@ -2052,10 +2061,11 @@ public class DefaultMessageStore implements MessageStore {
         @Override
         public void run() {
             DefaultMessageStore.log.info(this.getServiceName() + " service started");
-            // 每隔 1 ms 执行一次转发任务，把消息发送到 ConsumeQueue 和 IndexFile。
+            // 每隔 1 ms 执行一次转发任务，把消息推送到 ConsumeQueue 和 IndexFile。
             while (!this.isStopped()) {
                 try {
                     Thread.sleep(1);
+                    // 执行转发操作
                     this.doReput();
                 } catch (Exception e) {
                     DefaultMessageStore.log.warn(this.getServiceName() + " service has exception. ", e);

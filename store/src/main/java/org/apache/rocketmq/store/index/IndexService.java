@@ -66,9 +66,9 @@ public class IndexService {
                     IndexFile f = new IndexFile(file.getPath(), this.hashSlotNum, this.indexNum, 0, 0);
                     // 执行加载
                     f.load();
-
+                    // 上一次没有正常关闭
                     if (!lastExitOK) {
-                        //索引文件上次的刷盘时间小于该索引文件的消息时间戳,该文件将立即删除
+                        //索引文件上次的刷盘时间小于该索引文件的存储时间戳,该文件将立即删除
                         if (f.getEndTimestamp() > this.defaultMessageStore.getStoreCheckpoint()
                             .getIndexMsgTimestamp()) {
                             f.destroy(0);
@@ -77,7 +77,6 @@ public class IndexService {
                     }
 
                     log.info("load index file OK, " + f.getFileName());
-                    // 加载到内存中
                     this.indexFileList.add(f);
                 } catch (IOException e) {
                     log.error("load file {} error", file, e);
@@ -197,7 +196,6 @@ public class IndexService {
 
         return new QueryOffsetResult(phyOffsets, indexLastUpdateTimestamp, indexLastUpdatePhyoffset);
     }
-
     private String buildKey(final String topic, final String key) {
         return topic + "#" + key;
     }
@@ -206,12 +204,12 @@ public class IndexService {
         // 尝试获取 IndexFile ，如果没有则自己创建一个。
         IndexFile indexFile = retryGetAndCreateIndexFile();
         if (indexFile != null) {
-            // IndexFile 的最大物理偏移量
+            // IndexFile 文件的最大物理偏移量
             long endPhyOffset = indexFile.getEndPhyOffset();
             DispatchRequest msg = req;
             String topic = msg.getTopic();
             String keys = msg.getKeys();
-            //如果该消息的物理偏移量小于索引文件中的最大物理偏移量,则说明是重复数据,忽略本次索引构建
+            //如果该消息的已提交偏移量小于索引文件中的最大物理偏移量,则说明是重复数据之前已经存储过,忽略本次索引构建。
             if (msg.getCommitLogOffset() < endPhyOffset) {
                 return;
             }
@@ -227,7 +225,7 @@ public class IndexService {
             }
             // 消息唯一键不为空
             if (req.getUniqKey() != null) {
-                // 添加到 Hash 索引中
+                // 把消息添加到 Hash 索引中
                 indexFile = putKey(indexFile, msg, buildKey(topic, req.getUniqKey()));
                 if (indexFile == null) {
                     log.error("putKey error commitlog {} uniqkey {}", req.getCommitLogOffset(), req.getUniqKey());
@@ -236,6 +234,7 @@ public class IndexService {
             }
             //构建索引 key , RocketMQ 支持为同一个消息建立多个索引,多个索引键空格隔开.
             if (keys != null && keys.length() > 0) {
+                // 分割多个出 key
                 String[] keyset = keys.split(MessageConst.KEY_SEPARATOR);
                 for (int i = 0; i < keyset.length; i++) {
                     String key = keyset[i];

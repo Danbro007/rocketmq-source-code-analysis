@@ -77,9 +77,10 @@ public class ConsumeQueue {
     }
     //
     public boolean load() {
-        // 先加载 CommitLog 到内存中
+        // 先加载 ConsumeQueue 目录下的所有文件到内存中
         boolean result = this.mappedFileQueue.load();
         log.info("load consume queue " + this.topic + "-" + this.queueId + " " + (result ? "OK" : "Failed"));
+        // 如果有额外的消费队列的数据要读取则会继续读取
         if (isExtReadEnable()) {
             result &= this.consumeQueueExt.load();
         }
@@ -376,18 +377,21 @@ public class ConsumeQueue {
     public long getMinOffsetInQueue() {
         return this.minLogicOffset / CQ_STORE_UNIT_SIZE;
     }
-
+    // 消费队列存储消息
     public void putMessagePositionInfoWrapper(DispatchRequest request) {
+        // 最大重试次数
         final int maxRetries = 30;
         boolean canWrite = this.defaultMessageStore.getRunningFlags().isCQWriteable();
         for (int i = 0; i < maxRetries && canWrite; i++) {
             long tagsCode = request.getTagsCode();
             if (isExtWriteEnable()) {
+                // 消费队列的基本存储单元
                 ConsumeQueueExt.CqExtUnit cqExtUnit = new ConsumeQueueExt.CqExtUnit();
+                // 对存储单元进行设置
                 cqExtUnit.setFilterBitMap(request.getBitMap());
                 cqExtUnit.setMsgStoreTime(request.getStoreTimestamp());
                 cqExtUnit.setTagsCode(request.getTagsCode());
-
+                // 把消息存储到消费队列里。
                 long extAddr = this.consumeQueueExt.put(cqExtUnit);
                 if (isExtAddr(extAddr)) {
                     tagsCode = extAddr;
