@@ -29,21 +29,25 @@ import org.apache.rocketmq.common.constant.LoggerName;
 import org.apache.rocketmq.logging.InternalLogger;
 import org.apache.rocketmq.logging.InternalLoggerFactory;
 
+/**
+ * 维护多个 MappedFile，可以看做是 CommitLog。
+ */
 public class MappedFileQueue {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     private static final InternalLogger LOG_ERROR = InternalLoggerFactory.getLogger(LoggerName.STORE_ERROR_LOGGER_NAME);
 
     private static final int DELETE_FILES_BATCH_MAX = 10;
-
+    // 映射文件的存储路径
     private final String storePath;
-
+    // 映射文件大小，默认为 1024 MB
     private final int mappedFileSize;
-
+    // 内存映射文件集合
     private final CopyOnWriteArrayList<MappedFile> mappedFiles = new CopyOnWriteArrayList<MappedFile>();
-
+    // 创建映射文件的服务类
     private final AllocateMappedFileService allocateMappedFileService;
-
+    // 当前刷盘的指针
     private long flushedWhere = 0;
+    // 当前数据提交指针，内存中 ByteBuffer 当前的写指针，该值大于等于 flushedWhere 既刷盘指针后置于提交指针。
     private long committedWhere = 0;
 
     private volatile long storeTimestamp = 0;
@@ -74,12 +78,19 @@ public class MappedFileQueue {
         }
     }
 
+    /**
+     * 通过时间查找映射文件，判断依据是映射文件的上一次修改时间 >= 指定的时间则返回，
+     * 实在找不到则返回最后一个映射文件。
+     * @param timestamp 时间戳
+     * @return 映射文件
+     */
     public MappedFile getMappedFileByTime(final long timestamp) {
         Object[] mfs = this.copyMappedFiles(0);
 
         if (null == mfs)
             return null;
-
+        // 遍历所有的映射文件数组，判断每个映射文件的最后修改时间，
+        // 如果最后修改时间大于等于我们指定的时间则返回符合条件映射文件对象。
         for (int i = 0; i < mfs.length; i++) {
             MappedFile mappedFile = (MappedFile) mfs[i];
             if (mappedFile.getLastModifiedTimestamp() >= timestamp) {
@@ -103,21 +114,26 @@ public class MappedFileQueue {
 
     public void truncateDirtyFiles(long offset) {
         List<MappedFile> willRemoveFiles = new ArrayList<MappedFile>();
-
+        // 边路所有的 MappedFile
         for (MappedFile file : this.mappedFiles) {
+            // 计算出文件的尾部偏移量，就是文件名 + 文件大小 1073741824 B
             long fileTailOffset = file.getFileFromOffset() + this.mappedFileSize;
+            // 如果文件尾部偏移量大于 offset
             if (fileTailOffset > offset) {
+                // offset 大于等于 文件的起始偏移量则设置好文件的写指针、提交指针和刷盘指针。
                 if (offset >= file.getFileFromOffset()) {
                     file.setWrotePosition((int) (offset % this.mappedFileSize));
                     file.setCommittedPosition((int) (offset % this.mappedFileSize));
                     file.setFlushedPosition((int) (offset % this.mappedFileSize));
                 } else {
+                    // offset小于文件的起始偏移量,说明该文件是有效文件后面创建的,释放mappedFile占用内存,删除文件
+                    // 把文件添加到待删除的队列里
                     file.destroy(1000);
                     willRemoveFiles.add(file);
                 }
             }
         }
-
+        // 执行删除
         this.deleteExpiredFile(willRemoveFiles);
     }
 
@@ -145,13 +161,15 @@ public class MappedFileQueue {
     }
 
     public boolean load() {
+        // CommitLog 的存储路径
         File dir = new File(this.storePath);
         File[] files = dir.listFiles();
         if (files != null) {
             // ascending order
             Arrays.sort(files);
+            // 遍历所有的存储文件，如果发现存储文件大小不为 1024 MB 说明有问题。
             for (File file : files) {
-
+                // 判断文件长度是否符合要求既 1024 MB
                 if (file.length() != this.mappedFileSize) {
                     log.warn(file + "\t" + file.length()
                         + " length not matched message store config value, please check it manually");
@@ -159,11 +177,13 @@ public class MappedFileQueue {
                 }
 
                 try {
+                    // 把存储斍转换成 MappedFile 文件，设置好一些参数并加载到内存中。
                     MappedFile mappedFile = new MappedFile(file.getPath(), mappedFileSize);
-
+                    // 由于我们已经把存储文件存储到磁盘中了，所以这些写指针、刷盘指针、提交指针都为文件末尾。
                     mappedFile.setWrotePosition(this.mappedFileSize);
                     mappedFile.setFlushedPosition(this.mappedFileSize);
                     mappedFile.setCommittedPosition(this.mappedFileSize);
+                    // 加载到内存中
                     this.mappedFiles.add(mappedFile);
                     log.info("load " + file.getPath() + " OK");
                 } catch (IOException e) {
@@ -190,30 +210,36 @@ public class MappedFileQueue {
 
         return 0;
     }
-
+    // 返回最后一个 MappedFile 文件
     public MappedFile getLastMappedFile(final long startOffset, boolean needCreate) {
         long createOffset = -1;
+        // 尝试获取最后一个 MappedFile 文件
         MappedFile mappedFileLast = getLastMappedFile();
-
+        // 如果没有则说明需要创建一个新的，先获取这个新的 MappedFile 的消息偏移量的起始位置。
         if (mappedFileLast == null) {
             createOffset = startOffset - (startOffset % this.mappedFileSize);
         }
-
+        // 说明 MappedFile 已经满了，准备新的 MappedFile 的消息偏移量起始位置
         if (mappedFileLast != null && mappedFileLast.isFull()) {
             createOffset = mappedFileLast.getFileFromOffset() + this.mappedFileSize;
         }
-
+        // 如果设置的是需要创建新的 MappedFile
         if (createOffset != -1 && needCreate) {
+            // 新的 MappedFile 文件路径
             String nextFilePath = this.storePath + File.separator + UtilAll.offset2FileName(createOffset);
+            // 新的 MappedFile 的下一个文件路径，这样做是为了提升效率，因为频繁创建文件会降低磁盘 IO，当我们创建一个的同时可以异步的创建下下个 MappedFile，
+            // 如果创建失败了也不要紧。
             String nextNextFilePath = this.storePath + File.separator
                 + UtilAll.offset2FileName(createOffset + this.mappedFileSize);
             MappedFile mappedFile = null;
-
+            // 创建新的 MappedFile 文件，同时创建两个。
             if (this.allocateMappedFileService != null) {
+                // 新创建的 MappedFile
                 mappedFile = this.allocateMappedFileService.putRequestAndReturnMappedFile(nextFilePath,
                     nextNextFilePath, this.mappedFileSize);
             } else {
                 try {
+                    // 如果没有开启则自己手动创建 MappedFile
                     mappedFile = new MappedFile(nextFilePath, this.mappedFileSize);
                 } catch (IOException e) {
                     log.error("create mappedFile exception", e);
@@ -221,9 +247,11 @@ public class MappedFileQueue {
             }
 
             if (mappedFile != null) {
+                // MappedFile 数组为空，则表示这是第一次创建 MappedFile 文件，则把当前 MappedFile 文件标记为第一个。
                 if (this.mappedFiles.isEmpty()) {
                     mappedFile.setFirstCreateInQueue(true);
                 }
+                // 添加到 MappedFile 数组里。
                 this.mappedFiles.add(mappedFile);
             }
 
@@ -284,7 +312,7 @@ public class MappedFileQueue {
         }
         return true;
     }
-
+    // 获取映射文件最小的偏移量
     public long getMinOffset() {
 
         if (!this.mappedFiles.isEmpty()) {
@@ -298,7 +326,7 @@ public class MappedFileQueue {
         }
         return -1;
     }
-
+    // 获取映射文件最大的偏移量
     public long getMaxOffset() {
         MappedFile mappedFile = getLastMappedFile();
         if (mappedFile != null) {
@@ -306,7 +334,7 @@ public class MappedFileQueue {
         }
         return 0;
     }
-
+    // 获取映射文件的写入指针
     public long getMaxWrotePosition() {
         MappedFile mappedFile = getLastMappedFile();
         if (mappedFile != null) {
@@ -332,7 +360,7 @@ public class MappedFileQueue {
 
         }
     }
-
+    // 通过时间来删除过期文件
     public int deleteExpiredFileByTime(final long expiredTime,
         final int deleteFilesInterval,
         final long intervalForcibly,
@@ -346,18 +374,23 @@ public class MappedFileQueue {
         int deleteCount = 0;
         List<MappedFile> files = new ArrayList<MappedFile>();
         if (null != mfs) {
+            // 遍历每个 MappedFile 文件
             for (int i = 0; i < mfsLength; i++) {
                 MappedFile mappedFile = (MappedFile) mfs[i];
+                // 获取文件的可存活时间
                 long liveMaxTimestamp = mappedFile.getLastModifiedTimestamp() + expiredTime;
+                // 如果文件超过存活时间（72小时）或者要求立即删除当前文件
                 if (System.currentTimeMillis() >= liveMaxTimestamp || cleanImmediately) {
+                    // 执行删除
                     if (mappedFile.destroy(intervalForcibly)) {
+                        // 把待删除文件添加到待删除列表里
                         files.add(mappedFile);
                         deleteCount++;
-
+                        // 批量删除的文件最大数，最大批量删除数是 10 个文件。
                         if (files.size() >= DELETE_FILES_BATCH_MAX) {
                             break;
                         }
-
+                        // 删除文件间隔
                         if (deleteFilesInterval > 0 && (i + 1) < mfsLength) {
                             try {
                                 Thread.sleep(deleteFilesInterval);
@@ -373,7 +406,7 @@ public class MappedFileQueue {
                 }
             }
         }
-
+        // 执行删除超时文件
         deleteExpiredFile(files);
 
         return deleteCount;
@@ -438,10 +471,12 @@ public class MappedFileQueue {
 
         return result;
     }
-
+    // 提交数据
     public boolean commit(final int commitLeastPages) {
         boolean result = true;
+        // 通过消息偏移量找到映射文件
         MappedFile mappedFile = this.findMappedFileByOffset(this.committedWhere, this.committedWhere == 0);
+        // 如果找到了映射文件则
         if (mappedFile != null) {
             int offset = mappedFile.commit(commitLeastPages);
             long where = mappedFile.getFileFromOffset() + offset;
@@ -455,15 +490,22 @@ public class MappedFileQueue {
     /**
      * Finds a mapped file by offset.
      *
+     * 通过消息的偏移量查找映射文件，如果找不到则返回第一个映射文件。
+     *
      * @param offset Offset.
      * @param returnFirstOnNotFound If the mapped file is not found, then return the first one.
      * @return Mapped file or null (when not found and returnFirstOnNotFound is <code>false</code>).
      */
     public MappedFile findMappedFileByOffset(final long offset, final boolean returnFirstOnNotFound) {
         try {
+            // 第一个映射文件
             MappedFile firstMappedFile = this.getFirstMappedFile();
+            // 最后一个映射文件
             MappedFile lastMappedFile = this.getLastMappedFile();
+            // 如果最后一个和第一个映射文件都存在则执行下面的操作
             if (firstMappedFile != null && lastMappedFile != null) {
+                // 判断我们指定的消息偏移量是否小于第一个映射文件的消息偏移量或者大于等于（最后一个映射文件的偏移量加上当前映射文件的大小）
+                // 如果符合说明这个消息偏移量超过范围了会先打印错误日志。
                 if (offset < firstMappedFile.getFileFromOffset() || offset >= lastMappedFile.getFileFromOffset() + this.mappedFileSize) {
                     LOG_ERROR.warn("Offset not matched. Request offset: {}, firstOffset: {}, lastOffset: {}, mappedFileSize: {}, mappedFiles count: {}",
                         offset,
@@ -472,18 +514,22 @@ public class MappedFileQueue {
                         this.mappedFileSize,
                         this.mappedFiles.size());
                 } else {
+                    // 通过消息偏移量计算出映射文件数组的下标索引，然后通过这个下标索引找到对应的映射文件。
                     int index = (int) ((offset / this.mappedFileSize) - (firstMappedFile.getFileFromOffset() / this.mappedFileSize));
                     MappedFile targetFile = null;
                     try {
                         targetFile = this.mappedFiles.get(index);
                     } catch (Exception ignored) {
                     }
-
+                    // 如果符合这三个条件会返回目标文件
+                    // 1、通过下标索引找到的目标映射文件存在
+                    // 2、目标文件的偏移量 < 指定的消息偏移量 < 目标文件的偏移量 + 当前映射文件的大小
                     if (targetFile != null && offset >= targetFile.getFileFromOffset()
                         && offset < targetFile.getFileFromOffset() + this.mappedFileSize) {
                         return targetFile;
                     }
-
+                    // 遍历所有的映射文件符合下面条件：
+                    // 映射文件的偏移量 <= 指定的消息偏移量 < 映射文件的偏移量 + 映射文件大小
                     for (MappedFile tmpMappedFile : this.mappedFiles) {
                         if (offset >= tmpMappedFile.getFileFromOffset()
                             && offset < tmpMappedFile.getFileFromOffset() + this.mappedFileSize) {
@@ -491,7 +537,7 @@ public class MappedFileQueue {
                         }
                     }
                 }
-
+                // 到这里说明没有找到符合条件的映射文件，如果开启了 returnFirstOnNotFound 则返回第一个映射文件否则返回 null。
                 if (returnFirstOnNotFound) {
                     return firstMappedFile;
                 }

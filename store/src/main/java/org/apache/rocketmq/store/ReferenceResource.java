@@ -39,11 +39,12 @@ public abstract class ReferenceResource {
     public boolean isAvailable() {
         return this.available;
     }
-
+    // 映射文件销毁方法
     public void shutdown(final long intervalForcibly) {
         if (this.available) {
             this.available = false;
             this.firstShutdownTimestamp = System.currentTimeMillis();
+            // 释放资源
             this.release();
         } else if (this.getRefCount() > 0) {
             if ((System.currentTimeMillis() - this.firstShutdownTimestamp) >= intervalForcibly) {

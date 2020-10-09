@@ -30,6 +30,9 @@ import java.util.List;
 /**
  * Extend of consume queue, to store something not important,
  * such as message store time, filter bit map and etc.
+ *
+ * 消费队列的扩展，用来存储一些不重要的东西，比如消息的存储视，用来过滤消息的位图等。
+ *
  * <p/>
  * <li>1. This class is used only by {@link ConsumeQueue}</li>
  * <li>2. And is week reliable.</li>

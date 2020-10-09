@@ -75,8 +75,9 @@ public class ConsumeQueue {
             );
         }
     }
-
+    //
     public boolean load() {
+        // 先加载 CommitLog 到内存中
         boolean result = this.mappedFileQueue.load();
         log.info("load consume queue " + this.topic + "-" + this.queueId + " " + (result ? "OK" : "Failed"));
         if (isExtReadEnable()) {

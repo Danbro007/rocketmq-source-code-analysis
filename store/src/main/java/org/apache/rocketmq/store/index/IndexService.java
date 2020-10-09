@@ -53,7 +53,7 @@ public class IndexService {
         this.storePath =
             StorePathConfigHelper.getStorePathIndex(store.getMessageStoreConfig().getStorePathRootDir());
     }
-
+    // 加载 IndexFile 文件
     public boolean load(final boolean lastExitOK) {
         File dir = new File(this.storePath);
         File[] files = dir.listFiles();
@@ -62,10 +62,13 @@ public class IndexService {
             Arrays.sort(files);
             for (File file : files) {
                 try {
+                    // 获取 IndexFile 文件
                     IndexFile f = new IndexFile(file.getPath(), this.hashSlotNum, this.indexNum, 0, 0);
+                    // 执行加载
                     f.load();
 
                     if (!lastExitOK) {
+                        //索引文件上次的刷盘时间小于该索引文件的消息时间戳,该文件将立即删除
                         if (f.getEndTimestamp() > this.defaultMessageStore.getStoreCheckpoint()
                             .getIndexMsgTimestamp()) {
                             f.destroy(0);
@@ -74,6 +77,7 @@ public class IndexService {
                     }
 
                     log.info("load index file OK, " + f.getFileName());
+                    // 加载到内存中
                     this.indexFileList.add(f);
                 } catch (IOException e) {
                     log.error("load file {} error", file, e);
@@ -199,12 +203,15 @@ public class IndexService {
     }
 
     public void buildIndex(DispatchRequest req) {
+        // 尝试获取 IndexFile ，如果没有则自己创建一个。
         IndexFile indexFile = retryGetAndCreateIndexFile();
         if (indexFile != null) {
+            // IndexFile 的最大物理偏移量
             long endPhyOffset = indexFile.getEndPhyOffset();
             DispatchRequest msg = req;
             String topic = msg.getTopic();
             String keys = msg.getKeys();
+            //如果该消息的物理偏移量小于索引文件中的最大物理偏移量,则说明是重复数据,忽略本次索引构建
             if (msg.getCommitLogOffset() < endPhyOffset) {
                 return;
             }
@@ -218,15 +225,16 @@ public class IndexService {
                 case MessageSysFlag.TRANSACTION_ROLLBACK_TYPE:
                     return;
             }
-
+            // 消息唯一键不为空
             if (req.getUniqKey() != null) {
+                // 添加到 Hash 索引中
                 indexFile = putKey(indexFile, msg, buildKey(topic, req.getUniqKey()));
                 if (indexFile == null) {
                     log.error("putKey error commitlog {} uniqkey {}", req.getCommitLogOffset(), req.getUniqKey());
                     return;
                 }
             }
-
+            //构建索引 key , RocketMQ 支持为同一个消息建立多个索引,多个索引键空格隔开.
             if (keys != null && keys.length() > 0) {
                 String[] keyset = keys.split(MessageConst.KEY_SEPARATOR);
                 for (int i = 0; i < keyset.length; i++) {

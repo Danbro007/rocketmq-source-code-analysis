@@ -34,7 +34,7 @@ public interface AppendMessageCallback {
 
     /**
      * After batched message serialization, write MapedByteBuffer
-     *
+     * 批量写入
      * @param messageExtBatch, backed up by a byte array
      * @return How many bytes to write
      */

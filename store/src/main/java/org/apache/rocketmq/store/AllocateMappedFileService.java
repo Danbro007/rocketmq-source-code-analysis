@@ -49,17 +49,21 @@ public class AllocateMappedFileService extends ServiceThread {
     }
 
     public MappedFile putRequestAndReturnMappedFile(String nextFilePath, String nextNextFilePath, int fileSize) {
+        // 能提交的请求，这个数值是根据当前的 TransientStorePool 里的堆外内存数（默认为 5 个）- 请求队列里的请求数获取。
         int canSubmitRequests = 2;
+        // 如果开启了 TransientStorePoolEnable && fastFailIfNoBufferInStorePool && 当前存储主机是 Master
+        // 默认是开启 5 个堆外内存
         if (this.messageStore.getMessageStoreConfig().isTransientStorePoolEnable()) {
             if (this.messageStore.getMessageStoreConfig().isFastFailIfNoBufferInStorePool()
                 && BrokerRole.SLAVE != this.messageStore.getMessageStoreConfig().getBrokerRole()) { //if broker is slave, don't fast fail even no buffer in pool
+                // 更新 canSubmitRequests
                 canSubmitRequests = this.messageStore.getTransientStorePool().availableBufferNums() - this.requestQueue.size();
             }
         }
-
         AllocateRequest nextReq = new AllocateRequest(nextFilePath, fileSize);
+        // 尝试添加到 requestTable 里既添加到内存中
         boolean nextPutOK = this.requestTable.putIfAbsent(nextFilePath, nextReq) == null;
-
+        // 如果添加成功并且没有堆外内存可以使用则会把当前要创建的 MappedFile 在 requestTable 删除
         if (nextPutOK) {
             if (canSubmitRequests <= 0) {
                 log.warn("[NOTIFYME]TransientStorePool is not enough, so create mapped file error, " +
@@ -67,13 +71,15 @@ public class AllocateMappedFileService extends ServiceThread {
                 this.requestTable.remove(nextFilePath);
                 return null;
             }
+            // 说明有堆外内存可以使用，则把要创建的 MappedFile 的请求放入 requestQueue 里。
             boolean offerOK = this.requestQueue.offer(nextReq);
             if (!offerOK) {
                 log.warn("never expected here, add a request to preallocate queue failed");
             }
+            // 更新 canSubmitRequests
             canSubmitRequests--;
         }
-
+        // 我们再次尝试给第二个 MappedFile 分配堆外内存，失败也不要紧，主要是为了提高效率。
         AllocateRequest nextNextReq = new AllocateRequest(nextNextFilePath, fileSize);
         boolean nextNextPutOK = this.requestTable.putIfAbsent(nextNextFilePath, nextNextReq) == null;
         if (nextNextPutOK) {
@@ -93,15 +99,19 @@ public class AllocateMappedFileService extends ServiceThread {
             log.warn(this.getServiceName() + " service has exception. so return null");
             return null;
         }
-
+        // 到这里说明第二个 MappedFile 也能被创建了
         AllocateRequest result = this.requestTable.get(nextFilePath);
         try {
             if (result != null) {
+                // 说明第二个 MappedFile 已经被成功添加到内存中
+                // 等待主线程被唤醒
                 boolean waitOK = result.getCountDownLatch().await(waitTimeOut, TimeUnit.MILLISECONDS);
+                // 唤醒失败返回 null。
                 if (!waitOK) {
                     log.warn("create mmap timeout " + result.getFilePath() + " " + result.getFileSize());
                     return null;
                 } else {
+                    // 唤醒成功返回 MappedFile
                     this.requestTable.remove(nextFilePath);
                     return result.getMappedFile();
                 }
