@@ -584,7 +584,7 @@ public class DefaultMessageStore implements MessageStore {
     public CommitLog getCommitLog() {
         return commitLog;
     }
-
+    // 到 MessageStore 查找消息
     public GetMessageResult getMessage(final String group, final String topic, final int queueId, final long offset,
         final int maxMsgNums,
         final MessageFilter messageFilter) {
@@ -592,38 +592,48 @@ public class DefaultMessageStore implements MessageStore {
             log.warn("message store has shutdown, so getMessage is forbidden");
             return null;
         }
-
+        // 存储层不可读
         if (!this.runningFlags.isReadable()) {
             log.warn("message store is not readable, so getMessage is forbidden " + this.runningFlags.getFlagBits());
             return null;
         }
 
         long beginTime = this.getSystemClock().now();
-
+        // 获取消息的状态
         GetMessageStatus status = GetMessageStatus.NO_MESSAGE_IN_QUEUE;
+        // 下一个消息的偏移量
         long nextBeginOffset = offset;
+        // 消息的最小偏移量
         long minOffset = 0;
+        // 消息的最大偏移量
         long maxOffset = 0;
 
         GetMessageResult getResult = new GetMessageResult();
-
+        // CommitLog 里消息的最大偏移量
         final long maxOffsetPy = this.commitLog.getMaxOffset();
-
+        // 找到 ConsumeQueue ，如果有则把 minOffset 和 maxOffset 设置为 ConsumeQueue 的 minOffset 和 maxOffset。
         ConsumeQueue consumeQueue = findConsumeQueue(topic, queueId);
         if (consumeQueue != null) {
             minOffset = consumeQueue.getMinOffsetInQueue();
             maxOffset = consumeQueue.getMaxOffsetInQueue();
-
+            // maxOffset 为 0 说明 ConsumeQueue 里没有消息
             if (maxOffset == 0) {
                 status = GetMessageStatus.NO_MESSAGE_IN_QUEUE;
                 nextBeginOffset = nextOffsetCorrection(offset, 0);
-            } else if (offset < minOffset) {
+            }
+            // 说明 offset 太小了，可能是负的。
+            else if (offset < minOffset) {
                 status = GetMessageStatus.OFFSET_TOO_SMALL;
                 nextBeginOffset = nextOffsetCorrection(offset, minOffset);
-            } else if (offset == maxOffset) {
+            }
+            // 说明 ConsumeQueue 满了
+            else if (offset == maxOffset) {
                 status = GetMessageStatus.OFFSET_OVERFLOW_ONE;
                 nextBeginOffset = nextOffsetCorrection(offset, offset);
-            } else if (offset > maxOffset) {
+
+            }
+            // ConsumeQueue 溢出了
+            else if (offset > maxOffset) {
                 status = GetMessageStatus.OFFSET_OVERFLOW_BADLY;
                 if (0 == minOffset) {
                     nextBeginOffset = nextOffsetCorrection(offset, minOffset);
@@ -732,19 +742,26 @@ public class DefaultMessageStore implements MessageStore {
                         + maxOffset + ", but access logic queue failed.");
                 }
             }
-        } else {
+        }
+
+        // 没有找到 ConsumeQueue
+        else {
             status = GetMessageStatus.NO_MATCHED_LOGIC_QUEUE;
             nextBeginOffset = nextOffsetCorrection(offset, 0);
         }
-
+        // 查找到消息了
         if (GetMessageStatus.FOUND == status) {
+            // 找到消息的计数器 + 1
             this.storeStatsService.getGetMessageTimesTotalFound().incrementAndGet();
         } else {
+            // 没找到消息的计数器 - 1
             this.storeStatsService.getGetMessageTimesTotalMiss().incrementAndGet();
         }
+        // 耗时时间
         long elapsedTime = this.getSystemClock().now() - beginTime;
+        // 记录最大耗时时间
         this.storeStatsService.setGetMessageEntireTimeMax(elapsedTime);
-
+        // 对结果进行封装
         getResult.setStatus(status);
         getResult.setNextBeginOffset(nextBeginOffset);
         getResult.setMaxOffset(maxOffset);

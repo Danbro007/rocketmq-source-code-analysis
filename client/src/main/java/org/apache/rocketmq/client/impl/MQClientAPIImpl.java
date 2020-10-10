@@ -728,7 +728,7 @@ public class MQClientAPIImpl {
 
         return null;
     }
-
+    // 异步的拉取消息
     private void pullMessageAsync(
         final String addr,
         final RemotingCommand request,
@@ -760,7 +760,7 @@ public class MQClientAPIImpl {
             }
         });
     }
-
+    // 同步拉取消息
     private PullResult pullMessageSync(
         final String addr,
         final RemotingCommand request,
@@ -770,10 +770,11 @@ public class MQClientAPIImpl {
         assert response != null;
         return this.processPullResponse(response);
     }
-
+    // 处理 Broker 发送的响应
     private PullResult processPullResponse(
         final RemotingCommand response) throws MQBrokerException, RemotingCommandException {
         PullStatus pullStatus = PullStatus.NO_NEW_MSG;
+        // 先通过响应的状态码设置响应的拉取状态
         switch (response.getCode()) {
             case ResponseCode.SUCCESS:
                 pullStatus = PullStatus.FOUND;
@@ -791,7 +792,7 @@ public class MQClientAPIImpl {
             default:
                 throw new MQBrokerException(response.getCode(), response.getRemark());
         }
-
+        // 获取响应头
         PullMessageResponseHeader responseHeader =
             (PullMessageResponseHeader) response.decodeCommandCustomHeader(PullMessageResponseHeader.class);
 
