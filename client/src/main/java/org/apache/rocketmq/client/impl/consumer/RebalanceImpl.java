@@ -216,6 +216,10 @@ public abstract class RebalanceImpl {
         }
     }
 
+    /**
+     * 执行负载均衡
+     * @param isOrder 是否有序
+     */
     public void doRebalance(final boolean isOrder) {
         Map<String, SubscriptionData> subTable = this.getSubscriptionInner();
         if (subTable != null) {
@@ -237,9 +241,14 @@ public abstract class RebalanceImpl {
     public ConcurrentMap<String, SubscriptionData> getSubscriptionInner() {
         return subscriptionInner;
     }
-
+    /**
+     *
+     * 通过主题来实现负载均衡
+     *
+     */
     private void rebalanceByTopic(final String topic, final boolean isOrder) {
         switch (messageModel) {
+            // 广播模式不收负载均衡影响，不重要。
             case BROADCASTING: {
                 Set<MessageQueue> mqSet = this.topicSubscribeInfoTable.get(topic);
                 if (mqSet != null) {
@@ -257,6 +266,7 @@ public abstract class RebalanceImpl {
                 }
                 break;
             }
+            // 集群模式，先获得主题对应的消息集合和主题对应的消费者ID
             case CLUSTERING: {
                 Set<MessageQueue> mqSet = this.topicSubscribeInfoTable.get(topic);
                 List<String> cidAll = this.mQClientFactory.findConsumerIdList(topic, consumerGroup);
@@ -273,14 +283,29 @@ public abstract class RebalanceImpl {
                 if (mqSet != null && cidAll != null) {
                     List<MessageQueue> mqAll = new ArrayList<MessageQueue>();
                     mqAll.addAll(mqSet);
-
+                    // 对 mqAll 和 cidALL 排序
                     Collections.sort(mqAll);
                     Collections.sort(cidAll);
-
+                    /**
+                     *  负载均衡策略,RocketMQ 总共提供了 6 种，平常用以下两种：
+                     *  AllocateMessageQueueAveragely:平均分配
+                     *      举例:8个队列q1,q2,q3,q4,q5,a6,q7,q8,消费者3个:c1,c2,c3
+                     *      分配如下:
+                     *          c1:q1,q2,q3
+                     *          c2:q4,q5,a6
+                     *          c3:q7,q8
+                     * AllocateMessageQueueAveragelyByCircle:平均轮询分配
+                     *      举例:8个队列q1,q2,q3,q4,q5,a6,q7,q8,消费者3个:c1,c2,c3
+                     *      分配如下:
+                     *          c1:q1,q4,q7
+                     *          c2:q2,q5,a8
+                     *          c3:q3,q6
+                     */
                     AllocateMessageQueueStrategy strategy = this.allocateMessageQueueStrategy;
 
                     List<MessageQueue> allocateResult = null;
                     try {
+                        // 通过消费者 ID 分配
                         allocateResult = strategy.allocate(
                             this.consumerGroup,
                             this.mQClientFactory.getClientId(),
@@ -291,12 +316,12 @@ public abstract class RebalanceImpl {
                             e);
                         return;
                     }
-
+                    // 把 allocateResult 放入集合中，去重。
                     Set<MessageQueue> allocateResultSet = new HashSet<MessageQueue>();
                     if (allocateResult != null) {
                         allocateResultSet.addAll(allocateResult);
                     }
-
+                    // 更新 processQueue
                     boolean changed = this.updateProcessQueueTableInRebalance(topic, allocateResultSet, isOrder);
                     if (changed) {
                         log.info(

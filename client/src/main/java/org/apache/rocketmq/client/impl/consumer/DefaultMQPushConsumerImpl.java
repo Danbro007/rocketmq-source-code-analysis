@@ -1045,6 +1045,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
     @Override
     public void doRebalance() {
         if (!this.pause) {
+            // 执行负载均衡
             this.rebalanceImpl.doRebalance(this.isConsumeOrderly());
         }
     }
