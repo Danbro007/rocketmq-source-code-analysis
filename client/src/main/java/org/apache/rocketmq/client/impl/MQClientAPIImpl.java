@@ -702,7 +702,7 @@ public class MQClientAPIImpl {
         sendResult.setRegionId(regionId);
         return sendResult;
     }
-
+    // 这里的拉取消息对 ONEWAY 和 ASYNC 是异步的，不用等待拉取结果。
     public PullResult pullMessage(
         final String addr,
         final PullMessageRequestHeader requestHeader,
@@ -717,9 +717,11 @@ public class MQClientAPIImpl {
                 assert false;
                 return null;
             case ASYNC:
+                // 异步拉取
                 this.pullMessageAsync(addr, request, timeoutMillis, pullCallback);
                 return null;
             case SYNC:
+                // 同步拉取，拉取成功后会把响应封装成 PullResult 对象返回
                 return this.pullMessageSync(addr, request, timeoutMillis);
             default:
                 assert false;
@@ -735,19 +737,24 @@ public class MQClientAPIImpl {
         final long timeoutMillis,
         final PullCallback pullCallback
     ) throws RemotingException, InterruptedException {
+        // 异步执行，拉取完毕自动执行回调函数 InvokeCallback
         this.remotingClient.invokeAsync(addr, request, timeoutMillis, new InvokeCallback() {
             @Override
             public void operationComplete(ResponseFuture responseFuture) {
                 RemotingCommand response = responseFuture.getResponseCommand();
                 if (response != null) {
                     try {
+                        // 处理 Broker 发来的响应，把响应封装成 PullResult 对象返回
                         PullResult pullResult = MQClientAPIImpl.this.processPullResponse(response);
                         assert pullResult != null;
+                        // 执行 DefaultMQPushConsumerImpl 里的 PullCallback 的 OnSuccess() 方法
+                        // 对响应做出一些处理
                         pullCallback.onSuccess(pullResult);
                     } catch (Exception e) {
                         pullCallback.onException(e);
                     }
                 } else {
+                    // 响应为 null
                     if (!responseFuture.isSendRequestOK()) {
                         pullCallback.onException(new MQClientException("send request failed to " + addr + ". Request: " + request, responseFuture.getCause()));
                     } else if (responseFuture.isTimeout()) {
@@ -766,11 +773,13 @@ public class MQClientAPIImpl {
         final RemotingCommand request,
         final long timeoutMillis
     ) throws RemotingException, InterruptedException, MQBrokerException {
+        // 通过 Netty 的远程客户端同步拉取并返回响应
         RemotingCommand response = this.remotingClient.invokeSync(addr, request, timeoutMillis);
         assert response != null;
+        // 处理响应并返回结果
         return this.processPullResponse(response);
     }
-    // 处理 Broker 发送的响应
+    // 处理接收的响应
     private PullResult processPullResponse(
         final RemotingCommand response) throws MQBrokerException, RemotingCommandException {
         PullStatus pullStatus = PullStatus.NO_NEW_MSG;
@@ -788,7 +797,7 @@ public class MQClientAPIImpl {
             case ResponseCode.PULL_OFFSET_MOVED:
                 pullStatus = PullStatus.OFFSET_ILLEGAL;
                 break;
-
+            // 都不符合则抛出异常
             default:
                 throw new MQBrokerException(response.getCode(), response.getRemark());
         }

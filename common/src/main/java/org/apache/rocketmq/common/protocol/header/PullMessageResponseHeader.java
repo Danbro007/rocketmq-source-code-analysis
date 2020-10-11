@@ -25,12 +25,16 @@ import org.apache.rocketmq.remoting.annotation.CFNotNull;
 import org.apache.rocketmq.remoting.exception.RemotingCommandException;
 
 public class PullMessageResponseHeader implements CommandCustomHeader {
+    // broker 的id
     @CFNotNull
     private Long suggestWhichBrokerId;
+    // 下一个消息的起始偏移量
     @CFNotNull
     private Long nextBeginOffset;
+    // 消息的最小偏移量
     @CFNotNull
     private Long minOffset;
+    // 消息的最大偏移量
     @CFNotNull
     private Long maxOffset;
 

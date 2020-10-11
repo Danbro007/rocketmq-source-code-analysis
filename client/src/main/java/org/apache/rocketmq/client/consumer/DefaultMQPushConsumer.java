@@ -163,7 +163,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     /**
      * Message listener
      *
-     * 消息监听器
+     * 消息监听器，真正执行消费的操作。
      *
      */
     private MessageListener messageListener;
@@ -341,6 +341,9 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
     /**
      * Interface of asynchronous transfer data
+     *
+     * 异步传输数据的接口
+     *
      */
     private TraceDispatcher traceDispatcher = null;
 
@@ -780,6 +783,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
         this.defaultMQPushConsumerImpl.start();
         if (null != traceDispatcher) {
             try {
+                // 异步的传输数据
                 traceDispatcher.start(this.getNamesrvAddr(), this.getAccessChannel());
             } catch (MQClientException e) {
                 log.warn("trace dispatcher start failed ", e);

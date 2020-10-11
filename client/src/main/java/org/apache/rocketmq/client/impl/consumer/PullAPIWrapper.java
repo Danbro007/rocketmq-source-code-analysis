@@ -49,6 +49,9 @@ import org.apache.rocketmq.common.protocol.route.TopicRouteData;
 import org.apache.rocketmq.common.sysflag.PullSysFlag;
 import org.apache.rocketmq.remoting.exception.RemotingException;
 
+/**
+ * 封装了拉取消息的 API
+ */
 public class PullAPIWrapper {
     private final InternalLogger log = ClientLogger.getLog();
     private final MQClientInstance mQClientFactory;
@@ -62,11 +65,11 @@ public class PullAPIWrapper {
     private ArrayList<FilterMessageHook> filterMessageHookList = new ArrayList<FilterMessageHook>();
 
     public PullAPIWrapper(MQClientInstance mQClientFactory, String consumerGroup, boolean unitMode) {
-        this.mQClientFactory = mQClientFactory;
-        this.consumerGroup = consumerGroup;
-        this.unitMode = unitMode;
+        this.mQClientFactory = mQClientFactory;// 客户端
+        this.consumerGroup = consumerGroup; // 消费组
+        this.unitMode = unitMode;//
     }
-    //
+    // 对消息进行过滤
     public PullResult processPullResult(final MessageQueue mq, final PullResult pullResult,
         final SubscriptionData subscriptionData) {
         PullResultExt pullResultExt = (PullResultExt) pullResult;
@@ -74,6 +77,7 @@ public class PullAPIWrapper {
         this.updatePullFromWhichNode(mq, pullResultExt.getSuggestWhichBrokerId());
         if (PullStatus.FOUND == pullResult.getPullStatus()) {
             ByteBuffer byteBuffer = ByteBuffer.wrap(pullResultExt.getMessageBinary());
+            // 对消息进行解码
             List<MessageExt> msgList = MessageDecoder.decodes(byteBuffer);
 
             List<MessageExt> msgListFilterAgain = msgList;
@@ -87,7 +91,7 @@ public class PullAPIWrapper {
                     }
                 }
             }
-
+            // 对消息进行过滤
             if (this.hasHook()) {
                 FilterMessageContext filterMessageContext = new FilterMessageContext();
                 filterMessageContext.setUnitMode(unitMode);
@@ -139,7 +143,7 @@ public class PullAPIWrapper {
             }
         }
     }
-
+    // 到 Broker 拉取消息并返回结果
     public PullResult pullKernelImpl(
         final MessageQueue mq,
         final String subExpression,
@@ -154,11 +158,11 @@ public class PullAPIWrapper {
         final CommunicationMode communicationMode,
         final PullCallback pullCallback
     ) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
-        // 找到 Broker 的信息
+        // 找到 Broker 的相关信息
         FindBrokerResult findBrokerResult =
             this.mQClientFactory.findBrokerAddressInSubscribe(mq.getBrokerName(),
                 this.recalculatePullFromWhichNode(mq), false);
-        // 找不到 Broker 则会更新 Broker 信息，然后再次查找 Broker。
+        // 找不到 Broker 则会到NameServer 更新 Broker 信息，然后再次到订阅消息里查找 Broker。
         if (null == findBrokerResult) {
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(mq.getTopic());
             findBrokerResult =
@@ -169,7 +173,7 @@ public class PullAPIWrapper {
         if (findBrokerResult != null) {
             {
                 // check version
-                // 版本检查
+                // 版本检查，如果 Broker 的版本 低于 V4_1_0_SNAPSHOT 则会抛出异常，因为这个版本不支持过滤消息。
                 if (!ExpressionType.isTagType(expressionType)
                     && findBrokerResult.getBrokerVersion() < MQVersion.Version.V4_1_0_SNAPSHOT.ordinal()) {
                     throw new MQClientException("The broker[" + mq.getBrokerName() + ", "
@@ -199,7 +203,7 @@ public class PullAPIWrapper {
             if (PullSysFlag.hasClassFilterFlag(sysFlagInner)) {
                 brokerAddr = computPullFromWhichFilterServer(mq.getTopic(), brokerAddr);
             }
-            // 到 Broker 拉取消息获得拉取结果并返回
+            // 通过客户端到 Broker 拉取消息获得拉取结果并返回
             PullResult pullResult = this.mQClientFactory.getMQClientAPIImpl().pullMessage(
                 brokerAddr,
                 requestHeader,

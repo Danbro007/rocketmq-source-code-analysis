@@ -24,8 +24,9 @@ public class PullRequest {
     private MessageQueue messageQueue;
     // 处理队列
     private ProcessQueue processQueue;
-    // 下一个消息的偏移量
+    // 带拉取的 messageQueue 偏移量
     private long nextOffset;
+    // 是否被锁定
     private boolean lockedFirst = false;
 
     public boolean isLockedFirst() {

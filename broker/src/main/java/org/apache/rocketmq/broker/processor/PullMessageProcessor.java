@@ -91,7 +91,7 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
     public boolean rejectRequest() {
         return false;
     }
-    // 处理请求
+    // broker 中复制接收消费者的消费请求并返回响应
     private RemotingCommand processRequest(final Channel channel, RemotingCommand request, boolean brokerAllowSuspend)
         throws RemotingCommandException {
         // 返回响应

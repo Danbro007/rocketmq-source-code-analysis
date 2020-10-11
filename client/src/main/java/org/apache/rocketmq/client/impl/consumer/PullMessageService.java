@@ -77,10 +77,10 @@ public class PullMessageService extends ServiceThread {
     }
     // 拉取消息
     private void pullMessage(final PullRequest pullRequest) {
-        // 找到消费者
+        // 先找到消费者
         final MQConsumerInner consumer = this.mQClientFactory.selectConsumer(pullRequest.getConsumerGroup());
         if (consumer != null) {
-            // 把消费者转换成推模式的消费者实际还是使用拉模式拉取消息
+            // 拉取消息的模式转换成推模式来拉取消息，实际还是使用拉模式拉取消息。
             DefaultMQPushConsumerImpl impl = (DefaultMQPushConsumerImpl) consumer;
             impl.pullMessage(pullRequest);
         } else {
@@ -91,12 +91,12 @@ public class PullMessageService extends ServiceThread {
     @Override
     public void run() {
         log.info(this.getServiceName() + " service started");
-
+        // 循环一直执行
         while (!this.isStopped()) {
             try {
-                // 到拉请求队列里获取一个拉请求
+                // 先到 pullRequestQueue 队列里获取一个拉请求
                 PullRequest pullRequest = this.pullRequestQueue.take();
-                // 到 Broker 拉取消息
+                // 执行到 Broker 拉取消息
                 this.pullMessage(pullRequest);
             } catch (InterruptedException ignored) {
             } catch (Exception e) {

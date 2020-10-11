@@ -34,14 +34,16 @@ public class Consumer {
         consumer.setConsumeFromWhere(ConsumeFromWhere.CONSUME_FROM_FIRST_OFFSET);
 
         consumer.subscribe("TopicTest", "TagA || TagC || TagD");
-
+        // 真正来顺序消费消息的匿名内部类
         consumer.registerMessageListener(new MessageListenerOrderly() {
             AtomicLong consumeTimes = new AtomicLong(0);
 
             @Override
             public ConsumeOrderlyStatus consumeMessage(List<MessageExt> msgs, ConsumeOrderlyContext context) {
                 context.setAutoCommit(true);
+                // 打印当前的线程名和消息
                 System.out.printf("%s Receive New Messages: %s %n", Thread.currentThread().getName(), msgs);
+                // 消费计数器自增 1
                 this.consumeTimes.incrementAndGet();
                 if ((this.consumeTimes.get() % 2) == 0) {
                     return ConsumeOrderlyStatus.SUCCESS;

@@ -111,6 +111,7 @@ public class MQClientInstance {
         }
     });
     private final ClientRemotingProcessor clientRemotingProcessor;
+    // 来执行拉取消息的服务
     private final PullMessageService pullMessageService;
     private final RebalanceService rebalanceService;
     private final DefaultMQProducer defaultMQProducer;
