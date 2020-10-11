@@ -24,6 +24,9 @@ import org.apache.rocketmq.store.MessageFilter;
 public class PullRequest {
     private final RemotingCommand requestCommand;
     private final Channel clientChannel;
+    /**
+     * 轮询时间
+     */
     private final long timeoutMillis;
     private final long suspendTimestamp;
     private final long pullFromThisOffset;

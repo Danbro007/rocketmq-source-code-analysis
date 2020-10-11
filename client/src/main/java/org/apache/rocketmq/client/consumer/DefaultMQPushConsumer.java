@@ -285,7 +285,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     /**
      * Batch pull size
      *
-     * 批量拉取消息的数量，默认为 32。
+     * 一次批量拉取消息的数量，默认为 32。
      *
      */
     private int pullBatchSize = 32;

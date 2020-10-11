@@ -34,6 +34,9 @@ public class PullMessageRequestHeader implements CommandCustomHeader {
     private Integer queueId;
     @CFNotNull
     private Long queueOffset;
+    /**
+     * 一次拉取的消息最大数量
+     */
     @CFNotNull
     private Integer maxMsgNums;
     @CFNotNull

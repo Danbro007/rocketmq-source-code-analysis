@@ -584,34 +584,47 @@ public class DefaultMessageStore implements MessageStore {
     public CommitLog getCommitLog() {
         return commitLog;
     }
-    // 到 MessageStore 查找消息
+
+    /**
+     *
+     * 在 MessageStore （CommitLog）查找要被拉取的消息，最多 32 条。
+     *
+     * @param group Consumer group that launches this query. 要被查找的消费组
+     * @param topic Topic to query. 带查找的主题
+     * @param queueId Queue ID to query. 带查找的队列 ID
+     * @param offset Logical offset to start from. 待拉取消息的起始偏移量
+     * @param maxMsgNums Maximum count of messages to query. 查找的最大消息数
+     * @param messageFilter Message filter used to screen desired messages.  消息过滤器
+     * @return 查找结果
+     */
     public GetMessageResult getMessage(final String group, final String topic, final int queueId, final long offset,
         final int maxMsgNums,
         final MessageFilter messageFilter) {
+        // 判断 MessageStore 是否关闭
         if (this.shutdown) {
             log.warn("message store has shutdown, so getMessage is forbidden");
             return null;
         }
-        // 存储层不可读
+        // 判断 MessageStore 是否可读取消息
         if (!this.runningFlags.isReadable()) {
             log.warn("message store is not readable, so getMessage is forbidden " + this.runningFlags.getFlagBits());
             return null;
         }
 
         long beginTime = this.getSystemClock().now();
-        // 获取消息的状态
+        // 初始化获取消息的状态
         GetMessageStatus status = GetMessageStatus.NO_MESSAGE_IN_QUEUE;
-        // 下一个消息的偏移量
+        // 初始化待拉取消息的偏移量
         long nextBeginOffset = offset;
-        // 消息的最小偏移量
+        // 初始化消息的最小偏移量
         long minOffset = 0;
-        // 消息的最大偏移量
+        // 初始化消息的最大偏移量
         long maxOffset = 0;
 
         GetMessageResult getResult = new GetMessageResult();
         // CommitLog 里消息的最大偏移量
         final long maxOffsetPy = this.commitLog.getMaxOffset();
-        // 找到 ConsumeQueue ，如果有则把 minOffset 和 maxOffset 设置为 ConsumeQueue 的 minOffset 和 maxOffset。
+        // 通过主题和队列 ID 找到对应的 ConsumeQueue ，如果有则把 minOffset 和 maxOffset 设置为 ConsumeQueue 的 minOffset 和 maxOffset。
         ConsumeQueue consumeQueue = findConsumeQueue(topic, queueId);
         if (consumeQueue != null) {
             minOffset = consumeQueue.getMinOffsetInQueue();
@@ -621,18 +634,18 @@ public class DefaultMessageStore implements MessageStore {
                 status = GetMessageStatus.NO_MESSAGE_IN_QUEUE;
                 nextBeginOffset = nextOffsetCorrection(offset, 0);
             }
-            // 说明 offset 太小了，可能是负的。
+            // 说明 offset 太小了，说明待拉取的消息起始偏移量小于 consumeQueue 里最小消息偏移量，既不在当前 ConsumeQueue 里
             else if (offset < minOffset) {
                 status = GetMessageStatus.OFFSET_TOO_SMALL;
                 nextBeginOffset = nextOffsetCorrection(offset, minOffset);
             }
-            // 说明 ConsumeQueue 满了
+            // 待拉取消息的起始偏移量为当前 ConsumeQueue 的最大偏移量
             else if (offset == maxOffset) {
                 status = GetMessageStatus.OFFSET_OVERFLOW_ONE;
                 nextBeginOffset = nextOffsetCorrection(offset, offset);
 
             }
-            // ConsumeQueue 溢出了
+            // 带拉取的消息起始偏移量超过当前 ConsumeQueue 最大消息偏移量，偏移量越界了。
             else if (offset > maxOffset) {
                 status = GetMessageStatus.OFFSET_OVERFLOW_BADLY;
                 if (0 == minOffset) {
@@ -693,7 +706,7 @@ public class DefaultMessageStore implements MessageStore {
 
                                 continue;
                             }
-
+                            // 获取查找结果
                             SelectMappedBufferResult selectResult = this.commitLog.getMessage(offsetPy, sizePy);
                             if (null == selectResult) {
                                 if (getResult.getBufferTotalSize() == 0) {
@@ -757,7 +770,7 @@ public class DefaultMessageStore implements MessageStore {
             // 没找到消息的计数器 - 1
             this.storeStatsService.getGetMessageTimesTotalMiss().incrementAndGet();
         }
-        // 耗时时间
+        // 记录耗时时间
         long elapsedTime = this.getSystemClock().now() - beginTime;
         // 记录最大耗时时间
         this.storeStatsService.setGetMessageEntireTimeMax(elapsedTime);
@@ -1280,6 +1293,12 @@ public class DefaultMessageStore implements MessageStore {
         return logic;
     }
 
+    /**
+     * 矫正下一个消息偏移量，如果当前 Broker 不是 Slave or 允许在 Slave 进行偏移量检查则把 oldOffset 更新为 newOffset 。
+     * @param oldOffset 旧的消息偏移量
+     * @param newOffset 新的消息偏移量
+     * @return
+     */
     private long nextOffsetCorrection(long oldOffset, long newOffset) {
         long nextOffset = oldOffset;
         if (this.getMessageStoreConfig().getBrokerRole() != BrokerRole.SLAVE || this.getMessageStoreConfig().isOffsetCheckInSlave()) {
@@ -2026,7 +2045,8 @@ public class DefaultMessageStore implements MessageStore {
                                 if (size > 0) {
                                     // 执行消息的分发既发送到 ConsumeQueue 和 IndexFile
                                     DefaultMessageStore.this.doDispatch(dispatchRequest);
-
+                                    // 转发完毕后，如果当前 Broker 是 Master 并且开启了长轮询则会使用消息到达监听器，当有新的消息到达时
+                                    // 会通知 pullRequestHoldService 来处理。
                                     if (BrokerRole.SLAVE != DefaultMessageStore.this.getMessageStoreConfig().getBrokerRole()
                                         && DefaultMessageStore.this.brokerConfig.isLongPollingEnable()) {
                                         DefaultMessageStore.this.messageArrivingListener.arriving(dispatchRequest.getTopic(),

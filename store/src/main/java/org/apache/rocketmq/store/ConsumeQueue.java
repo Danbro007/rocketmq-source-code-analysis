@@ -32,7 +32,9 @@ public class ConsumeQueue {
     private static final InternalLogger LOG_ERROR = InternalLoggerFactory.getLogger(LoggerName.STORE_ERROR_LOGGER_NAME);
 
     private final DefaultMessageStore defaultMessageStore;
-
+    /**
+     * MappedFile 文件队列，围护着多个 MappedFile 文件。
+     */
     private final MappedFileQueue mappedFileQueue;
     private final String topic;
     private final int queueId;

@@ -22,7 +22,7 @@ import java.util.List;
 import org.apache.rocketmq.store.stats.BrokerStatsManager;
 
 public class GetMessageResult {
-
+    // 查找的消息
     private final List<SelectMappedBufferResult> messageMapedList =
         new ArrayList<SelectMappedBufferResult>(100);
 

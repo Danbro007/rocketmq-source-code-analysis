@@ -70,7 +70,7 @@ import org.apache.rocketmq.store.config.BrokerRole;
 import org.apache.rocketmq.store.stats.BrokerStatsManager;
 
 /**
- * 负责把拉取的消息进行处理
+ * 负责服务端（Broker）处理拉取消息的请求
  */
 public class PullMessageProcessor extends AsyncNettyRequestProcessor implements NettyRequestProcessor {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
@@ -242,7 +242,7 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
             messageFilter = new ExpressionMessageFilter(subscriptionData, consumerFilterData,
                 this.brokerController.getConsumerFilterManager());
         }
-        // 调用MessageStore.getMessage查找消息
+        // 调用 DefaultMessageStore 里查找消息，一次最多拉取 32 条消息。
         final GetMessageResult getMessageResult =
             this.brokerController.getMessageStore().getMessage(requestHeader.getConsumerGroup(), requestHeader.getTopic(),
                 requestHeader.getQueueId(), requestHeader.getQueueOffset(), requestHeader.getMaxMsgNums(), messageFilter);
@@ -265,9 +265,9 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
                 case ASYNC_MASTER:
                 case SYNC_MASTER:
                     break;
-                // 如果拉取消息的 Broker 是 Slave 则会判断这个 Slave 是不是不能读取，
-                // 如果是则会设置响应状态码为 PULL_RETRY_IMMEDIATELY
-                // 并且把响应头的 BrokerId 设置为 Master ，让消费者到 Master 拉取消息
+                // 如果拉取消息的 Broker 是 Slave 并且这个 Slave 不能读取消息，
+                // 如果是则会设置响应状态码为 PULL_RETRY_IMMEDIATELY 既立马重试
+                // 并且把响应头的 BrokerId 设置为 Master ，让消费者下次到 Master 拉取消息
                 case SLAVE:
                     if (!this.brokerController.getBrokerConfig().isSlaveReadEnable()) {
                         response.setCode(ResponseCode.PULL_RETRY_IMMEDIATELY);
@@ -275,10 +275,10 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
                     }
                     break;
             }
-            // Slave 是可以读取的
+            // Slave 是可以读取消息的
             if (this.brokerController.getBrokerConfig().isSlaveReadEnable()) {
                 // consume too slow ,redirect to another machine
-                // 如果消费很慢会跳转到另一个 Broker 拉取消息消费。
+                // 如果原来是到 Slave 拉取消息消费的，但是消费很慢的话会跳转到另一个 Broker 拉取消息消费。
                 if (getMessageResult.isSuggestPullingFromSlave()) {
                     responseHeader.setSuggestWhichBrokerId(subscriptionGroupConfig.getWhichBrokerWhenConsumeSlowly());
                 }
@@ -287,7 +287,9 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
                     // 正常消费
                     responseHeader.setSuggestWhichBrokerId(subscriptionGroupConfig.getBrokerId());
                 }
-            } else {
+            }
+            // Slave 不可读取则会到 Master 读取
+            else {
                 responseHeader.setSuggestWhichBrokerId(MixAll.MASTER_ID);
             }
             // 根据查找的结果返回不同的响应码
@@ -421,19 +423,23 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
                         response = null;
                     }
                     break;
+                    // 没有拉取到消息
                 case ResponseCode.PULL_NOT_FOUND:
 
                     if (brokerAllowSuspend && hasSuspendFlag) {
+                        // 轮询时间
                         long pollingTimeMills = suspendTimeoutMillisLong;
+                        // 如果没有开启长轮询则设置长轮询时间为 1000 ms
                         if (!this.brokerController.getBrokerConfig().isLongPollingEnable()) {
                             pollingTimeMills = this.brokerController.getBrokerConfig().getShortPollingTimeMills();
                         }
-
+                        // 构建拉取请求
                         String topic = requestHeader.getTopic();
                         long offset = requestHeader.getQueueOffset();
                         int queueId = requestHeader.getQueueId();
                         PullRequest pullRequest = new PullRequest(request, channel, pollingTimeMills,
                             this.brokerController.getMessageStore().now(), offset, subscriptionData, messageFilter);
+                        // 每个 1000 ms 会轮询一次处理拉取请求
                         this.brokerController.getPullRequestHoldService().suspendPullRequest(topic, queueId, pullRequest);
                         response = null;
                         break;
@@ -480,6 +486,7 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
         storeOffsetEnable = storeOffsetEnable && hasCommitOffsetFlag;
         storeOffsetEnable = storeOffsetEnable
             && this.brokerController.getMessageStoreConfig().getBrokerRole() != BrokerRole.SLAVE;
+        //如果 CommitLog 标记可用,并且当前 Broker 为 Master,则更新消息消费进度
         if (storeOffsetEnable) {
             this.brokerController.getConsumerOffsetManager().commitOffset(RemotingHelper.parseChannelRemoteAddr(channel),
                 requestHeader.getConsumerGroup(), requestHeader.getTopic(), requestHeader.getQueueId(), requestHeader.getCommitOffset());
