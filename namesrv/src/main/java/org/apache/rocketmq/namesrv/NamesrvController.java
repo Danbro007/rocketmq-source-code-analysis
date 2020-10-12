@@ -41,18 +41,19 @@ import org.apache.rocketmq.srvutil.FileWatchService;
 
 public class NamesrvController {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
-
+    // nameSrv 的参数配置
     private final NamesrvConfig namesrvConfig;
-
+    // netty的服务器参数配置
     private final NettyServerConfig nettyServerConfig;
-
+    // 定时任务线程服务类
     private final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl(
         "NSScheduledThread"));
     private final KVConfigManager kvConfigManager;
+    // 管理着 Broker 的路由消息
     private final RouteInfoManager routeInfoManager;
 
     private RemotingServer remotingServer;
-
+    // 监听客户端连接(Channel)的变化，通知RouteInfoManager检查broker是否有变化
     private BrokerHousekeepingService brokerHousekeepingService;
 
     private ExecutorService remotingExecutor;
@@ -61,27 +62,36 @@ public class NamesrvController {
     private FileWatchService fileWatchService;
 
     public NamesrvController(NamesrvConfig namesrvConfig, NettyServerConfig nettyServerConfig) {
+        //nameserv参数配置
         this.namesrvConfig = namesrvConfig;
+        //netty的参数配置
         this.nettyServerConfig = nettyServerConfig;
         this.kvConfigManager = new KVConfigManager(this);
+        //初始化RouteInfoManager
         this.routeInfoManager = new RouteInfoManager();
+        //监听客户端连接(Channel)的变化，通知RouteInfoManager检查broker是否有变化
         this.brokerHousekeepingService = new BrokerHousekeepingService(this);
         this.configuration = new Configuration(
             log,
             this.namesrvConfig, this.nettyServerConfig
         );
+        //Nameserv的配置参数会保存到磁盘文件中
         this.configuration.setStorePathFromConfig(this.namesrvConfig, "configStorePath");
     }
 
+    /**
+     * NamesrvController 的初始化操作
+     * @return
+     */
     public boolean initialize() {
 
         this.kvConfigManager.load();
         // 创建 Netty 服务端
         this.remotingServer = new NettyRemotingServer(this.nettyServerConfig, this.brokerHousekeepingService);
-        // 创建线程池
+        // 创建线程池来处理客户端发来的请求
         this.remotingExecutor =
             Executors.newFixedThreadPool(nettyServerConfig.getServerWorkerThreads(), new ThreadFactoryImpl("RemotingExecutorThread_"));
-        // 注册处理器
+        // 注册处理器 DefaultRequestProcessor ，所有的请求都会通过 DefaultRequestProcessor 的 processRequest() 来处理。
         this.registerProcessor();
         // 创建一个定时任务线程池，里面有一个定时任务，这个任务是每隔 10 秒取检查是否有挂掉的 broker,有挂到的就移除它。
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
@@ -100,7 +110,7 @@ public class NamesrvController {
                 NamesrvController.this.kvConfigManager.printAllPeriodically();
             }
         }, 1, 10, TimeUnit.MINUTES);
-
+        // 监听ssl证书文件变化，
         if (TlsSystemConfig.tlsMode != TlsMode.DISABLED) {
             // Register a listener to reload SslContext
             try {
@@ -145,11 +155,11 @@ public class NamesrvController {
     private void registerProcessor() {
         // 根据是否是集群模式配置不同的处理器
         if (namesrvConfig.isClusterTest()) {
-
+            // 集群模式
             this.remotingServer.registerDefaultProcessor(new ClusterTestRequestProcessor(this, namesrvConfig.getProductEnvName()),
                 this.remotingExecutor);
         } else {
-
+            // 广播模式
             this.remotingServer.registerDefaultProcessor(new DefaultRequestProcessor(this), this.remotingExecutor);
         }
     }

@@ -156,7 +156,7 @@ public class NamesrvStartup {
             controller.shutdown();
             System.exit(-3);
         }
-        // 添加一个JVM的钩子函数，当JVM关闭时会执行 namesrvController 释放资源的函数
+        // 添加一个JVM的钩子函数，当JVM关闭时会执行 NamesrvController 释放资源的函数
         Runtime.getRuntime().addShutdownHook(new ShutdownHookThread(log, new Callable<Void>() {
             @Override
             public Void call() throws Exception {
