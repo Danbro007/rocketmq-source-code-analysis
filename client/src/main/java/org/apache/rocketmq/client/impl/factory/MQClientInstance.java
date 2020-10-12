@@ -238,23 +238,24 @@ public class MQClientInstance {
                 case CREATE_JUST:
                     this.serviceState = ServiceState.START_FAILED;
                     // If not specified,looking address from name server
-                    // 如果没有指定则回到 NameServer 查找消息拉取地址
+                    // 如果没有 nameserver 地址则取获取
                     if (null == this.clientConfig.getNamesrvAddr()) {
                         this.mQClientAPIImpl.fetchNameServerAddr();
                     }
                     // Start request-response channel
+                    // 启动 Netty 客户端
                     this.mQClientAPIImpl.start();
                     // Start various schedule tasks
-                    // 启动各种定时任务
+                    // 启动各种定时任务，包括向 NameServer 发送心跳包，更新路由信息等。
                     this.startScheduledTask();
                     // Start pull service
-                    // 开启拉取消息的任务
+                    // 开启拉取消息的任务来处理拉请求
                     this.pullMessageService.start();
                     // Start rebalance service
                     // 开启负载均衡的服务
                     this.rebalanceService.start();
                     // Start push service
-                    // 开启推服务
+                    // 开启生产者
                     this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
                     log.info("the client factory [{}] start OK", this.clientId);
                     this.serviceState = ServiceState.RUNNING;
@@ -269,6 +270,7 @@ public class MQClientInstance {
 
     private void startScheduledTask() {
         if (null == this.clientConfig.getNamesrvAddr()) {
+            // 获取 Nameserver 信息
             this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
                 @Override
@@ -281,7 +283,7 @@ public class MQClientInstance {
                 }
             }, 1000 * 10, 1000 * 60 * 2, TimeUnit.MILLISECONDS);
         }
-
+        // 更新路由信息
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -293,7 +295,7 @@ public class MQClientInstance {
                 }
             }
         }, 10, this.clientConfig.getPollNameServerInterval(), TimeUnit.MILLISECONDS);
-
+        // 清除已经判断为下线的 broker ，给所有的 broker 发送心跳包
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -306,7 +308,7 @@ public class MQClientInstance {
                 }
             }
         }, 1000, this.clientConfig.getHeartbeatBrokerInterval(), TimeUnit.MILLISECONDS);
-
+        // 持久化消费者的消费消息偏移量
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -318,7 +320,7 @@ public class MQClientInstance {
                 }
             }
         }, 1000 * 10, this.clientConfig.getPersistConsumerOffsetInterval(), TimeUnit.MILLISECONDS);
-
+        // 调整线程池
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -624,10 +626,11 @@ public class MQClientInstance {
             if (this.lockNamesrv.tryLock(LOCK_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
                 try {
                     TopicRouteData topicRouteData;
-                    // 使用默认主题到 NameServer 获取路由信息
+                    // 使用默认 topic 到 NameServer 获取路由信息 超时时间为 3000 ms
                     if (isDefault && defaultMQProducer != null) {
                         topicRouteData = this.mQClientAPIImpl.getDefaultTopicRouteInfoFromNameServer(defaultMQProducer.getCreateTopicKey(),
                             1000 * 3);
+                        // 遍历 topic 里的所有队列更新读队列和写队列的数量
                         if (topicRouteData != null) {
                             for (QueueData data : topicRouteData.getQueueDatas()) {
                                 int queueNums = Math.min(defaultMQProducer.getDefaultTopicQueueNums(), data.getReadQueueNums());
@@ -636,13 +639,13 @@ public class MQClientInstance {
                             }
                         }
                     } else {
-                        // 使用我们自定义的主题到 NameServer 获取路由信息
+                        // 使用我们自定义的主题到 NameServer 发送请求获取路由信息
                         topicRouteData = this.mQClientAPIImpl.getTopicRouteInfoFromNameServer(topic, 1000 * 3);
                     }
                     if (topicRouteData != null) {
                         // 到客户端本地缓存获取主题对应的路由信息
                         TopicRouteData old = this.topicRouteTable.get(topic);
-                        // 新的路由与就的路由进行比较，如果不相等则返回 true。
+                        // 新的路由与就的路由进行比较，如果不相等就标记为路由信息有变更
                         boolean changed = topicRouteDataIsChange(old, topicRouteData);
                         // 说明路由信息没有变化
                         if (!changed) {
@@ -651,7 +654,7 @@ public class MQClientInstance {
                         } else {
                             log.info("the topic[{}] route info changed, old[{}] ,new[{}]", topic, old, topicRouteData);
                         }
-
+                        // 说明路由信息有变更则把最新的 Broker 信息缓存到客户端中
                         if (changed) {
                             TopicRouteData cloneTopicRouteData = topicRouteData.cloneTopicRouteData();
 
@@ -674,7 +677,7 @@ public class MQClientInstance {
                                 }
                             }
 
-                            // 把消费者对应主题的路由进行更新
+                            // 更新消费者存储的 Broker 路由信息
                             {
                                 Set<MessageQueue> subscribeInfo = topicRouteData2TopicSubscribeInfo(topic, topicRouteData);
                                 Iterator<Entry<String, MQConsumerInner>> it = this.consumerTable.entrySet().iterator();

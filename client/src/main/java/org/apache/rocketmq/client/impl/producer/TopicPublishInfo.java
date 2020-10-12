@@ -28,7 +28,7 @@ public class TopicPublishInfo {
     private boolean orderTopic = false;
     // 是否有主题路由信息
     private boolean haveTopicRouterInfo = false;
-    // 消息队列列表
+    // topic 里的所有消息队列
     private List<MessageQueue> messageQueueList = new ArrayList<MessageQueue>();
     // 每选择一次消息队列,该值+1
     private volatile ThreadLocalIndex sendWhichQueue = new ThreadLocalIndex();
@@ -79,12 +79,12 @@ public class TopicPublishInfo {
             // 遍历所有的消息队列
             int index = this.sendWhichQueue.getAndIncrement();
             for (int i = 0; i < this.messageQueueList.size(); i++) {
-                // 获取 消息队列的 pos
+                // 获取消息队列的 pos 下标
                 int pos = Math.abs(index++) % this.messageQueueList.size();
                 if (pos < 0)
                     pos = 0;
-                // 如果获取的队列的 BrokerName 与上一次不一样就返回（为了实现轮询策略）
                 MessageQueue mq = this.messageQueueList.get(pos);
+                // 如果获取的队列的 BrokerName 与上一次不一样就返回（为了实现轮询策略）
                 if (!mq.getBrokerName().equals(lastBrokerName)) {
                     return mq;
                 }
