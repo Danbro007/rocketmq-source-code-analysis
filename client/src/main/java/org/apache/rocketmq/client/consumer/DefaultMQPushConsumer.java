@@ -772,7 +772,9 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
     /**
      * This method gets internal infrastructure readily to serve. Instances must call this method after configuration.
-     * 启动消费者
+     *
+     * 启动推模式的消费者
+     *
      * @throws MQClientException if there is any client error.
      */
     @Override

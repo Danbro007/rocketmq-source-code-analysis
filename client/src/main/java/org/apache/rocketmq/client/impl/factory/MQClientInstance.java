@@ -84,6 +84,9 @@ import org.apache.rocketmq.remoting.exception.RemotingException;
 import org.apache.rocketmq.remoting.netty.NettyClientConfig;
 import org.apache.rocketmq.remoting.protocol.RemotingCommand;
 
+/**
+ * MQ 的客户端实例
+ */
 public class MQClientInstance {
     private final static long LOCK_TIMEOUT_MILLIS = 3000;
     private final InternalLogger log = ClientLogger.getLog();
@@ -137,15 +140,15 @@ public class MQClientInstance {
             this.mQClientAPIImpl.updateNameServerAddressList(this.clientConfig.getNamesrvAddr());
             log.info("user specified name server address: {}", this.clientConfig.getNamesrvAddr());
         }
-
+        // 客户端 ID
         this.clientId = clientId;
 
         this.mQAdminImpl = new MQAdminImpl(this);
-
+        // 拉请求服务，异步发送请求到broker并负责将返回结果放到缓存队列
         this.pullMessageService = new PullMessageService(this);
-
+        // 定时做一次负载均衡操作
         this.rebalanceService = new RebalanceService(this);
-
+        // 内部使用的 Producer 主要用于在消费失败或者超时后发送重试的消息给broker
         this.defaultMQProducer = new DefaultMQProducer(MixAll.CLIENT_INNER_PRODUCER_GROUP);
         this.defaultMQProducer.resetClientConfig(clientConfig);
 
@@ -243,7 +246,7 @@ public class MQClientInstance {
                         this.mQClientAPIImpl.fetchNameServerAddr();
                     }
                     // Start request-response channel
-                    // 启动 Netty 客户端
+                    // 启动 Netty 客户端，之后通过这个客户端向 Broker 发送请求。
                     this.mQClientAPIImpl.start();
                     // Start various schedule tasks
                     // 启动各种定时任务，包括向 NameServer 发送心跳包，更新路由信息等。
@@ -253,9 +256,14 @@ public class MQClientInstance {
                     this.pullMessageService.start();
                     // Start rebalance service
                     // 开启负载均衡的服务
+                    // 触发条件有两种：
+                    // 1、每隔 20 s 触发一次
+                    // 2、接口触发：
+                    //      1）收到 broker 的 consumer list发生变化通知后需要重新做负载均衡，比如同一个group中新加入了consumer或者有consumer下线；
+                    //      2）consumer 启动的时候
                     this.rebalanceService.start();
                     // Start push service
-                    // 开启生产者
+                    // 开启生产者,这里的生产者就是在初始化客户端设置的，是为了重试消费设置的。
                     this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
                     log.info("the client factory [{}] start OK", this.clientId);
                     this.serviceState = ServiceState.RUNNING;
@@ -268,6 +276,15 @@ public class MQClientInstance {
         }
     }
 
+    /**
+     * 开启了以下几个定时任务：
+     * 1、定时获取 NameServer 消息，120 s 一次。
+     * 2、定时更新路由信息，30 s 一次。
+     * 3、定时清理已下线的 Broker，然后向所有的 Broker 发送心跳，30 s 一次。
+     * 4、定时持久化消费者的消费进度，5 s 一次。
+     * 5、定时更新消费者的数量调整线程池的大小，1 min 一次。
+     *
+     */
     private void startScheduledTask() {
         if (null == this.clientConfig.getNamesrvAddr()) {
             // 获取 Nameserver 信息
@@ -308,7 +325,7 @@ public class MQClientInstance {
                 }
             }
         }, 1000, this.clientConfig.getHeartbeatBrokerInterval(), TimeUnit.MILLISECONDS);
-        // 持久化消费者的消费消息偏移量
+        // 持久化消费者的消费进度
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -320,7 +337,7 @@ public class MQClientInstance {
                 }
             }
         }, 1000 * 10, this.clientConfig.getPersistConsumerOffsetInterval(), TimeUnit.MILLISECONDS);
-        // 调整线程池
+        // 根据客户端中消费者的数量调整线程池大小
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override

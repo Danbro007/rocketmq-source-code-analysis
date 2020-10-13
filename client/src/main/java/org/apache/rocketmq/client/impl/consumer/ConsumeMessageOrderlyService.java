@@ -87,7 +87,7 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
     }
 
     /**
-     * 每隔 20 s 执行一次
+     * 每隔 20 s 执行一次，任务内容时对队列上锁。
      */
     public void start() {
         if (MessageModel.CLUSTERING.equals(ConsumeMessageOrderlyService.this.defaultMQPushConsumerImpl.messageModel())) {

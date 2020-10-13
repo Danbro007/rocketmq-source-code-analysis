@@ -91,7 +91,10 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
     public boolean rejectRequest() {
         return false;
     }
-    // broker 中复制接收消费者的消费请求并返回响应
+
+    /**
+     * broker 中真正责接收消费者的拉取请求并返回响应
+     */
     private RemotingCommand processRequest(final Channel channel, RemotingCommand request, boolean brokerAllowSuspend)
         throws RemotingCommandException {
         // 返回响应
@@ -250,7 +253,7 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
         if (getMessageResult != null) {
             // 给响应设置查找结果的状态
             response.setRemark(getMessageResult.getStatus().name());
-            // 给响应头设置最大、最小和下一个消息起始的偏移量
+            // 给响应头设置最大、最小消息偏移量和下一个消息起始的偏移量
             responseHeader.setNextBeginOffset(getMessageResult.getNextBeginOffset());
             responseHeader.setMinOffset(getMessageResult.getMinOffset());
             responseHeader.setMaxOffset(getMessageResult.getMaxOffset());

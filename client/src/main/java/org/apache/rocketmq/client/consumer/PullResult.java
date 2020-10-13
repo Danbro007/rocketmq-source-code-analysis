@@ -25,22 +25,22 @@ public class PullResult {
      */
     private final PullStatus pullStatus;
     /**
-     * 下次拉取的偏移量
+     * 下次拉取消息的偏移量
      */
     private final long nextBeginOffset;
     /**
-     * 消息最小偏移量
+     * 本次拉取到消息里消息最小偏移量
      */
     private final long minOffset;
     /**
      *
-     * 消息最大偏移量
+     * 本次拉取到消息里消息最大偏移量
      *
      */
     private final long maxOffset;
     /**
      *
-     * 拉取消息列表
+     * 拉取到的消息列表
      *
      */
     private List<MessageExt> msgFoundList;

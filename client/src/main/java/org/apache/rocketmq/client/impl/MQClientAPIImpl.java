@@ -706,7 +706,10 @@ public class MQClientAPIImpl {
         sendResult.setRegionId(regionId);
         return sendResult;
     }
-    // 这里的拉取消息对 ONEWAY 和 ASYNC 是异步的，不用等待拉取结果。
+
+    /**
+     * 这里的拉取消息对 ONEWAY 和 ASYNC 是异步的，不用等待拉取结果。
+     */
     public PullResult pullMessage(
         final String addr,
         final PullMessageRequestHeader requestHeader,
@@ -752,7 +755,7 @@ public class MQClientAPIImpl {
                         PullResult pullResult = MQClientAPIImpl.this.processPullResponse(response);
                         assert pullResult != null;
                         // 执行 DefaultMQPushConsumerImpl 里的 PullCallback 的 OnSuccess() 方法
-                        // 对响应做出一些处理
+                        // 对拉取结果做处理
                         pullCallback.onSuccess(pullResult);
                     } catch (Exception e) {
                         pullCallback.onException(e);
@@ -771,7 +774,10 @@ public class MQClientAPIImpl {
             }
         });
     }
-    // 同步拉取消息
+
+    /**
+     * 同步拉取消息，拉取到结果后会被 processPullResponse() 方法来处理响应
+     */
     private PullResult pullMessageSync(
         final String addr,
         final RemotingCommand request,
@@ -783,7 +789,12 @@ public class MQClientAPIImpl {
         // 处理响应并返回结果
         return this.processPullResponse(response);
     }
-    // 处理接收的响应
+
+    /**
+     * 处理响应
+     * 1、先对响应状态与拉取状态做一次转换。
+     * 2、对响应进行解码获取响应头，然后对结果做一次封装并返回。
+     */
     private PullResult processPullResponse(
         final RemotingCommand response) throws MQBrokerException, RemotingCommandException {
         PullStatus pullStatus = PullStatus.NO_NEW_MSG;
@@ -808,7 +819,7 @@ public class MQClientAPIImpl {
         // 获取响应头
         PullMessageResponseHeader responseHeader =
             (PullMessageResponseHeader) response.decodeCommandCustomHeader(PullMessageResponseHeader.class);
-
+        // 对返回结果做进一步的封装
         return new PullResultExt(pullStatus, responseHeader.getNextBeginOffset(), responseHeader.getMinOffset(),
             responseHeader.getMaxOffset(), null, responseHeader.getSuggestWhichBrokerId(), response.getBody());
     }

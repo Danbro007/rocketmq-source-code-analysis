@@ -69,7 +69,14 @@ public class PullAPIWrapper {
         this.consumerGroup = consumerGroup; // 消费组
         this.unitMode = unitMode;//
     }
-    // 对消息进行过滤
+
+    /**
+     * 处理拉请求
+     * @param mq
+     * @param pullResult
+     * @param subscriptionData
+     * @return
+     */
     public PullResult processPullResult(final MessageQueue mq, final PullResult pullResult,
         final SubscriptionData subscriptionData) {
         PullResultExt pullResultExt = (PullResultExt) pullResult;
@@ -143,7 +150,12 @@ public class PullAPIWrapper {
             }
         }
     }
-    // 到 Broker 拉取消息并返回结果
+
+    /**
+     * 1、先找到 Broker 的消息
+     * 2、封装请求头、
+     * 3、通过客户端拉取消息并返回结果。
+     */
     public PullResult pullKernelImpl(
         final MessageQueue mq,
         final String subExpression,

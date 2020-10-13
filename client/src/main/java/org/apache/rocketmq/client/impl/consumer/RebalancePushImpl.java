@@ -47,11 +47,21 @@ public class RebalancePushImpl extends RebalanceImpl {
         this.defaultMQPushConsumerImpl = defaultMQPushConsumerImpl;
     }
 
+    /**
+     * 负载均衡的结构改变了，需要发送心跳通知 broker 来实现同步。
+     * @param topic
+     * @param mqAll
+     * @param mqDivided
+     */
     @Override
     public void messageQueueChanged(String topic, Set<MessageQueue> mqAll, Set<MessageQueue> mqDivided) {
         /**
          * When rebalance result changed, should update subscription's version to notify broker.
          * Fix: inconsistency subscription may lead to consumer miss messages.
+         *
+         * 当负载均衡的结果和原来不同，应该通过更新下订阅消息的版本拉通知下 broekr。
+         * Fix：不一致的订阅消息可能会导致消费组错过消息。
+         *
          */
         SubscriptionData subscriptionData = this.subscriptionInner.get(topic);
         long newVersion = System.currentTimeMillis();

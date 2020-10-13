@@ -30,6 +30,9 @@ public interface TraceDispatcher {
     }
     /**
      * Initialize asynchronous transfer data module
+     *
+     * 初始化异步传输数据模块
+     *
      */
     void start(String nameSrvAddr, AccessChannel accessChannel) throws MQClientException;
 
