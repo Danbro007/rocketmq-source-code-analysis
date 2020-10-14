@@ -357,7 +357,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                                     pullRequest.getMessageQueue().getTopic(), pullResult.getMsgFoundList().size());
                                 // 把拉取消息（MsgFoundList）放进 processQueue 里
                                 boolean dispatchToConsume = processQueue.putMessage(pullResult.getMsgFoundList());
-                                // 提交消费请求提交给 consumeMessageService 的线程池执行，供消费者消费。
+                                // 提交待消费结果提交给 consumeMessageService 的线程池执行，供消费者消费。
                                 DefaultMQPushConsumerImpl.this.consumeMessageService.submitConsumeRequest(
                                     pullResult.getMsgFoundList(),
                                     processQueue,
@@ -555,19 +555,25 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
         log.info("resume this consumer, {}", this.defaultMQPushConsumer.getConsumerGroup());
     }
 
+    /**
+     * 1、首先获取 Broker 地址信息
+     * 2、尝试向 Broker 发送代码为 CONSUMER_SEND_MSG_BACK 的请求。
+     * 3、如果这个发送过程中出现异常，会执行把消息发送到 【%RETRY% + 消费组名】 这个主题上，然后使用 Consumer 内部的 Producer 发送给 Consumer，
+     *  相当于自己发送消息给自己。之前启动 Consumer 的使用都会订阅一个 【%RETRY% + 消费组名】 主题。
+     */
     public void sendMessageBack(MessageExt msg, int delayLevel, final String brokerName)
         throws RemotingException, MQBrokerException, InterruptedException, MQClientException {
         try {
             // 获取要发送的 Broker 地址
             String brokerAddr = (null != brokerName) ? this.mQClientFactory.findBrokerAddressInPublish(brokerName)
                 : RemotingHelper.parseSocketAddressAddr(msg.getStoreHost());
-            // 向 Broker 发送请求，Broker 接收到后会重新投递消息然后消费者的监听器会监听
+            // 向 Broker 发送请求，Broker 接收到后会重新投递消息然后消费者的监听器会监听，请求代码是 CONSUMER_SEND_MSG_BACK
             // 重试次数默认是 16 次，
             this.mQClientFactory.getMQClientAPIImpl().consumerSendMessageBack(brokerAddr, msg,
                 this.defaultMQPushConsumer.getConsumerGroup(), delayLevel, 5000, getMaxReconsumeTimes());
         } catch (Exception e) {
             log.error("sendMessageBack Exception, " + this.defaultMQPushConsumer.getConsumerGroup(), e);
-            //如果发送失败，则把消息发送到%RETRY%topic，重新发送
+            //如果发送失败，则把消息发送到 【%RETRY% + 消费组名】主题上，重新发送
             Message newMsg = new Message(MixAll.getRetryTopic(this.defaultMQPushConsumer.getConsumerGroup()), msg.getBody());
 
             String originMsgId = MessageAccessor.getOriginMessageId(msg);
