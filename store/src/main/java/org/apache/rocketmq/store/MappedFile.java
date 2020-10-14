@@ -237,7 +237,7 @@ public class MappedFile extends ReferenceResource {
         if (currentPos < this.fileSize) {
             // 如果开启了 transientStorePoolEnable 则会使用 writeBuffer ，否则是使用 mappedByteBuffer 开辟一个缓冲区。
             ByteBuffer byteBuffer = writeBuffer != null ? writeBuffer.slice() : this.mappedByteBuffer.slice();
-            // 在 ByteBuffer 里标记当前的位置
+            // 在 ByteBuffer 里标记要写入的位置
             byteBuffer.position(currentPos);
             AppendMessageResult result;
             // 写入单条消息

@@ -191,7 +191,7 @@ public abstract class AbstractSendMessageProcessor extends AsyncNettyRequestProc
                     topicSysFlag = TopicSysFlag.buildSysFlag(true, false);
                 }
             }
-
+            // topic 不存在
             log.warn("the topic {} not exist, producer: {}", requestHeader.getTopic(), ctx.channel().remoteAddress());
             topicConfig = this.brokerController.getTopicConfigManager().createTopicInSendMessageMethod(
                 requestHeader.getTopic(),
