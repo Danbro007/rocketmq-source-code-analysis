@@ -115,15 +115,27 @@ public class BrokerController {
     private final NettyServerConfig nettyServerConfig;
     private final NettyClientConfig nettyClientConfig;
     private final MessageStoreConfig messageStoreConfig;
+    /**
+     * 管理每个 ConsumerGroup 消息消费的进度。集群的 Consumer 会在消息消费成功后把 offset 信息同步给 Broker
+     */
     private final ConsumerOffsetManager consumerOffsetManager;
+    /**
+     * Consumer 管理器，里面存储着 Consumer 的消息。
+     */
     private final ConsumerManager consumerManager;
     private final ConsumerFilterManager consumerFilterManager;
+    /**
+     * Producer 管理器，里面存储着 Producer 的消息。
+     */
     private final ProducerManager producerManager;
     private final ClientHousekeepingService clientHousekeepingService;
     private final PullMessageProcessor pullMessageProcessor;
     private final PullRequestHoldService pullRequestHoldService;
     private final MessageArrivingListener messageArrivingListener;
     private final Broker2Client broker2Client;
+    /**
+     * 管理着 ConsumerGroup 与对应的订阅配置消息。
+     */
     private final SubscriptionGroupManager subscriptionGroupManager;
     private final ConsumerIdsChangeListener consumerIdsChangeListener;
     private final RebalanceLockManager rebalanceLockManager = new RebalanceLockManager();
@@ -146,6 +158,10 @@ public class BrokerController {
     private MessageStore messageStore;
     private RemotingServer remotingServer;
     private RemotingServer fastRemotingServer;
+    /**
+     * 管理所有 Broker 的 Topic 和对应的 Queue 消息。Topic 的数据会定时和 Nameserv 做同步，
+     * 以更新 Nameserv 上的 Topic 路由信息。
+     */
     private TopicConfigManager topicConfigManager;
     private ExecutorService sendMessageExecutor;
     private ExecutorService pullMessageExecutor;
@@ -231,13 +247,18 @@ public class BrokerController {
         return queryThreadPoolQueue;
     }
 
+    /**
+     * Broker 的初始化
+     * @return
+     * @throws CloneNotSupportedException
+     */
     public boolean initialize() throws CloneNotSupportedException {
         boolean result = this.topicConfigManager.load();
-
+        // 把存储文件里的数据加载到内存中
         result = result && this.consumerOffsetManager.load();
         result = result && this.subscriptionGroupManager.load();
         result = result && this.consumerFilterManager.load();
-
+        //成功加载完毕会初始化 MessageStore 并加载插件
         if (result) {
             try {
                 this.messageStore =
@@ -249,17 +270,19 @@ public class BrokerController {
                 }
                 this.brokerStats = new BrokerStats((DefaultMessageStore) this.messageStore);
                 //load plugin
+                // 加载 MessageStore 的插件
                 MessageStorePluginContext context = new MessageStorePluginContext(messageStoreConfig, brokerStatsManager, messageArrivingListener, brokerConfig);
                 this.messageStore = MessageStoreFactory.build(context, this.messageStore);
+                // 添加一个 CommitLog 的分发器
                 this.messageStore.getDispatcherList().addFirst(new CommitLogDispatcherCalcBitMap(this.brokerConfig, this.consumerFilterManager));
             } catch (IOException e) {
                 result = false;
                 log.error("Failed to initialize", e);
             }
         }
-
+        // 加载存储的消息
         result = result && this.messageStore.load();
-
+        // 加载成功会对几个服务进行初始化，注册处理器，开启几个定时任务
         if (result) {
             this.remotingServer = new NettyRemotingServer(this.nettyServerConfig, this.clientHousekeepingService);
             NettyServerConfig fastConfig = (NettyServerConfig) this.nettyServerConfig.clone();
@@ -328,9 +351,9 @@ public class BrokerController {
             this.consumerManageExecutor =
                 Executors.newFixedThreadPool(this.brokerConfig.getConsumerManageThreadPoolNums(), new ThreadFactoryImpl(
                     "ConsumerManageThread_"));
-
+            // 主要就是注册 PullMessageProcessor 和 sendMessageProcessor
             this.registerProcessor();
-
+            // 打印broker的消息吞吐信息到日志文件，每天0点记录一次
             final long initialDelay = UtilAll.computeNextMorningTimeMillis() - System.currentTimeMillis();
             final long period = 1000 * 60 * 60 * 24;
             this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
@@ -343,7 +366,7 @@ public class BrokerController {
                     }
                 }
             }, initialDelay, period, TimeUnit.MILLISECONDS);
-
+            // 每隔 5 s 执行一次消费进度的持久化操作
             this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
                 @Override
                 public void run() {
@@ -354,7 +377,7 @@ public class BrokerController {
                     }
                 }
             }, 1000 * 10, this.brokerConfig.getFlushConsumerOffsetInterval(), TimeUnit.MILLISECONDS);
-
+            // 每隔 10 s 执行一次 consumer filter 的持久化操作
             this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
                 @Override
                 public void run() {
@@ -365,7 +388,8 @@ public class BrokerController {
                     }
                 }
             }, 1000 * 10, 1000 * 10, TimeUnit.MILLISECONDS);
-
+            // 每隔 3 Min 检查 Consumer 是否可用，原理就是检查 Consumer 的消费记录，如果延时太大了则把这个 Consumer
+            // 标记为不可以，下次不再往这个 Consumer 投递消息。
             this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
                 @Override
                 public void run() {
@@ -376,7 +400,7 @@ public class BrokerController {
                     }
                 }
             }, 3, 3, TimeUnit.MINUTES);
-
+            // 每个 1 s 打印队列的日志信息。
             this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
                 @Override
                 public void run() {
@@ -387,7 +411,7 @@ public class BrokerController {
                     }
                 }
             }, 10, 1, TimeUnit.SECONDS);
-
+            // 每隔 60 s 打印已经存储在 CommitLog 里但是还没发送给 ConsumeQueue 的数据大小
             this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
                 @Override
@@ -399,7 +423,7 @@ public class BrokerController {
                     }
                 }
             }, 1000 * 10, 1000 * 60, TimeUnit.MILLISECONDS);
-
+            // 更新 NameServer 的地址信息
             if (this.brokerConfig.getNamesrvAddr() != null) {
                 this.brokerOuterAPI.updateNameServerAddressList(this.brokerConfig.getNamesrvAddr());
                 log.info("Set user specified name server address: {}", this.brokerConfig.getNamesrvAddr());
@@ -418,6 +442,7 @@ public class BrokerController {
             }
 
             if (!messageStoreConfig.isEnableDLegerCommitLog()) {
+                // 如果当前 Broker 是 Slave 则会把 HA Master 消息更新为配置文件里的
                 if (BrokerRole.SLAVE == this.messageStoreConfig.getBrokerRole()) {
                     if (this.messageStoreConfig.getHaMasterAddress() != null && this.messageStoreConfig.getHaMasterAddress().length() >= 6) {
                         this.messageStore.updateHaMasterAddress(this.messageStoreConfig.getHaMasterAddress());
@@ -426,6 +451,7 @@ public class BrokerController {
                         this.updateMasterHAServerAddrPeriodically = true;
                     }
                 } else {
+                    // 说明 Broker 是 Master 则会每隔 60 s 打印一次 Slave 有多少数据还没有同步过来。
                     this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
                         @Override
                         public void run() {
@@ -479,6 +505,7 @@ public class BrokerController {
                     log.warn("FileWatchService created error, can't load the certificate dynamically");
                 }
             }
+            // 初始化事务服务
             initialTransaction();
             initialAcl();
             initialRpcHooks();
@@ -632,6 +659,9 @@ public class BrokerController {
         this.brokerStats = brokerStats;
     }
 
+    /**
+     * 先判断 Consumer 是不是消费的太慢了既延时太长了，如果是则把当前 Consumer 标记为 Disable，下次不再投递消息给这个 Consumer。
+     */
     public void protectBroker() {
         if (this.brokerConfig.isDisableConsumeIfConsumerReadSlowly()) {
             final Iterator<Map.Entry<String, MomentStatsItem>> it = this.brokerStatsManager.getMomentStatsItemSetFallSize().getStatsItemTable().entrySet().iterator();
@@ -848,45 +878,54 @@ public class BrokerController {
         return this.brokerConfig.getBrokerIP1() + ":" + this.nettyServerConfig.getListenPort();
     }
     // 启动 broker
+
+    /**
+     *
+     * 启动各种服务
+     *
+     */
     public void start() throws Exception {
+        // 启动消息存储服务
         if (this.messageStore != null) {
             this.messageStore.start();
         }
-
+        // 启动 Netty Server 服务来就收请求。
         if (this.remotingServer != null) {
             this.remotingServer.start();
         }
-
+        // 启动 fastRemotingServer 服务
         if (this.fastRemotingServer != null) {
             this.fastRemotingServer.start();
         }
-
+        //启动tls签名文件检测服务
         if (this.fileWatchService != null) {
             this.fileWatchService.start();
         }
-
+        // 启动 broker netty client
         if (this.brokerOuterAPI != null) {
             this.brokerOuterAPI.start();
         }
-
+        //启动PushConsumer的请求hold服务
         if (this.pullRequestHoldService != null) {
             this.pullRequestHoldService.start();
         }
-
+        //监控客户端连接，定时检查Producer，Consumer和Filter是否长时间未收到心跳
         if (this.clientHousekeepingService != null) {
             this.clientHousekeepingService.start();
         }
 
+        //启动Filter Server
         if (this.filterServerManager != null) {
             this.filterServerManager.start();
         }
-
         if (!messageStoreConfig.isEnableDLegerCommitLog()) {
             startProcessorByHa(messageStoreConfig.getBrokerRole());
             handleSlaveSynchronize(messageStoreConfig.getBrokerRole());
             this.registerBrokerAll(true, false, true);
         }
-        // 定时任务，默认每个 30 秒会主动向所有的 nameserver 上报信息
+        /**
+         * 定时任务，默认每隔 30 秒会主动向所有的 nameserver 上报信息
+         */
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -903,7 +942,7 @@ public class BrokerController {
         if (this.brokerStatsManager != null) {
             this.brokerStatsManager.start();
         }
-
+        //启动brokerFastFailure，定时清理长时间未执行的客户端请求
         if (this.brokerFastFailure != null) {
             this.brokerFastFailure.start();
         }

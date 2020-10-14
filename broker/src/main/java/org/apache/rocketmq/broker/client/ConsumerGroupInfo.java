@@ -34,14 +34,32 @@ import org.apache.rocketmq.common.protocol.heartbeat.SubscriptionData;
 
 public class ConsumerGroupInfo {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
+    /**
+     * ConsumerGroup 的名字
+     */
     private final String groupName;
+    /**
+     * 当前 ConsumerGroup 订阅的 Topic 及订阅消息。
+     */
     private final ConcurrentMap<String/* Topic */, SubscriptionData> subscriptionTable =
         new ConcurrentHashMap<String, SubscriptionData>();
     private final ConcurrentMap<Channel, ClientChannelInfo> channelInfoTable =
         new ConcurrentHashMap<Channel, ClientChannelInfo>(16);
+    /**
+     * 消费类型
+     */
     private volatile ConsumeType consumeType;
+    /**
+     * 消息模式
+     */
     private volatile MessageModel messageModel;
+    /**
+     * 消费 offset
+     */
     private volatile ConsumeFromWhere consumeFromWhere;
+    /**
+     * 上一次更新 ConsumerGroup 的时间
+     */
     private volatile long lastUpdateTimestamp = System.currentTimeMillis();
 
     public ConsumerGroupInfo(String groupName, ConsumeType consumeType, MessageModel messageModel,

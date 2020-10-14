@@ -27,6 +27,10 @@ import org.apache.rocketmq.common.stats.MomentStatsItemSet;
 import org.apache.rocketmq.common.stats.StatsItem;
 import org.apache.rocketmq.common.stats.StatsItemSet;
 
+/**
+ * 管理着 Broker 的所有状态消息，其实主要是维护了一个 HashMap，每次 Broker 有什么状态比如启动关闭，会对这个 HashMap
+ * 里存储的状态进行修改。
+ */
 public class BrokerStatsManager {
 
     public static final String TOPIC_PUT_NUMS = "TOPIC_PUT_NUMS";

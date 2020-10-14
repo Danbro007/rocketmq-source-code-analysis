@@ -28,11 +28,16 @@ import org.apache.rocketmq.store.stats.BrokerStatsManager;
 
 /**
  * This class defines contracting interfaces to implement, allowing third-party vendor to use customized message store.
+ *
+ * 这个类定义了要实现的接口，允许第三方使用定制的消息存储。
  */
+
 public interface MessageStore {
 
     /**
      * Load previously stored messages.
+     *
+     * 加载以前存储的消息。
      *
      * @return true if success; false otherwise.
      */
@@ -41,17 +46,25 @@ public interface MessageStore {
     /**
      * Launch this message store.
      *
+     * 开启消息存储功能
+     *
      * @throws Exception if there is any error.
      */
     void start() throws Exception;
 
     /**
      * Shutdown this message store.
+     *
+     * 关闭消息存储功能
+     *
      */
     void shutdown();
 
     /**
      * Destroy this message store. Generally, all persistent files should be removed after invocation.
+     *
+     * 销毁此消息存储。一般来说，调用后会删除所有的存储文件。
+     *
      */
     void destroy();
 
@@ -312,6 +325,8 @@ public interface MessageStore {
 
     /**
      * Get number of the bytes that have been stored in commit log and not yet dispatched to consume queue.
+     *
+     * 返回已经存储在 CommitLog 里但是还没发送给 ConsumeQueue 的数据大小
      *
      * @return number of the bytes to dispatch.
      */
