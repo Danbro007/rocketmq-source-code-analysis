@@ -999,6 +999,17 @@ public class DefaultMessageStore implements MessageStore {
         this.cleanCommitLogService.excuteDeleteFilesManualy();
     }
 
+    /**
+     * 通过 MessageKey 查找消息流程：
+     *  1、先通过 MessageKey 到 IndexFile 里查找到消息的 offset。
+     *  2、再凭借消息的 offset 到 CommitLog 里查找消息。
+     * @param topic topic of the message.
+     * @param key message key.
+     * @param maxNum maximum number of the messages possible. 批量查询消息的最大个数
+     * @param begin begin timestamp. 开始时间
+     * @param end end timestamp.  结束时间
+     * @return 查询结果
+     */
     @Override
     public QueryMessageResult queryMessage(String topic, String key, int maxNum, long begin, long end) {
         QueryMessageResult queryMessageResult = new QueryMessageResult();
@@ -1006,23 +1017,28 @@ public class DefaultMessageStore implements MessageStore {
         long lastQueryMsgTime = end;
 
         for (int i = 0; i < 3; i++) {
+            //先通过 MessageKey 到 IndexFile 查询消息在 CommitLog 的 offset
+            // 在 IndexFile 中是以 topic#MessageKey 的格式构建索引的
             QueryOffsetResult queryOffsetResult = this.indexService.queryOffset(topic, key, maxNum, begin, lastQueryMsgTime);
             if (queryOffsetResult.getPhyOffsets().isEmpty()) {
                 break;
             }
-
+            // 对查询到的消息 offset 排序
             Collections.sort(queryOffsetResult.getPhyOffsets());
-
+            // 设置查到的消息里最后更新时间和最新消息的 Offset
             queryMessageResult.setIndexLastUpdatePhyoffset(queryOffsetResult.getIndexLastUpdatePhyoffset());
             queryMessageResult.setIndexLastUpdateTimestamp(queryOffsetResult.getIndexLastUpdateTimestamp());
-
+            // 遍历每条消息
             for (int m = 0; m < queryOffsetResult.getPhyOffsets().size(); m++) {
+                // 每条消息的 offset
                 long offset = queryOffsetResult.getPhyOffsets().get(m);
 
                 try {
 
                     boolean match = true;
+                    // 通过消息 offset 到 CommitLog 查询
                     MessageExt msg = this.lookMessageByOffset(offset);
+                    // 查找的第一条消息
                     if (0 == m) {
                         lastQueryMsgTime = msg.getStoreTimestamp();
                     }
@@ -1036,13 +1052,17 @@ public class DefaultMessageStore implements MessageStore {
 //                            }
 //                        }
 //                    }
-
+                    // 找到了则获取 SelectMappedBufferResult 对象，里面有查询的消息所在的 MappedFile 等信息。
                     if (match) {
                         SelectMappedBufferResult result = this.commitLog.getData(offset, false);
                         if (result != null) {
+                            // 从头开始读取 4 个字节
                             int size = result.getByteBuffer().getInt(0);
+                            // 设置缓冲区大小
                             result.getByteBuffer().limit(size);
+                            // 设置能读取数据的大小
                             result.setSize(size);
+                            // 把数据放入 queryMessageResult 里
                             queryMessageResult.addMessage(result);
                         }
                     } else {
@@ -1052,7 +1072,7 @@ public class DefaultMessageStore implements MessageStore {
                     log.error("queryMessage exception", e);
                 }
             }
-
+            //
             if (queryMessageResult.getBufferTotalSize() > 0) {
                 break;
             }

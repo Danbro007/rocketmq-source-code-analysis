@@ -37,10 +37,19 @@ public class IndexService {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     /**
      * Maximum times to attempt index file creation.
+     *
+     * 创建 IndexFile 文件的最多重试次数为 3 次
+     *
      */
     private static final int MAX_TRY_IDX_CREATE = 3;
     private final DefaultMessageStore defaultMessageStore;
+    /**
+     * IndexFile 里默认的 Hash 槽数为 500W 个
+     */
     private final int hashSlotNum;
+    /**
+     * 存取的索引数最多为 2000W 个
+     */
     private final int indexNum;
     private final String storePath;
     private final ArrayList<IndexFile> indexFileList = new ArrayList<IndexFile>();
@@ -53,7 +62,13 @@ public class IndexService {
         this.storePath =
             StorePathConfigHelper.getStorePathIndex(store.getMessageStoreConfig().getStorePathRootDir());
     }
-    // 加载 IndexFile 文件
+
+    /**
+     *  从磁盘加载 IndexFile 文件
+     * @param lastExitOK 上次是否是正常关闭，判断依据就是看存储目录下有没有 abort 文件。
+     *                   有的话说明不是正常关闭。
+     * @return
+     */
     public boolean load(final boolean lastExitOK) {
         File dir = new File(this.storePath);
         File[] files = dir.listFiles();
@@ -157,6 +172,15 @@ public class IndexService {
         }
     }
 
+    /**
+     * 通过 topic 和 MessageKey 找到消息，然后通过 maxNum 限定查找到的最大消息数，过滤出在 begin 和 end 时间内的消息。
+     * @param topic 主题名
+     * @param key MessageKey
+     * @param maxNum 批量查询的最大消息数
+     * @param begin 开始时间
+     * @param end 结束时间
+     * @return 查询结果
+     */
     public QueryOffsetResult queryOffset(String topic, String key, int maxNum, long begin, long end) {
         List<Long> phyOffsets = new ArrayList<Long>(maxNum);
 
@@ -164,18 +188,21 @@ public class IndexService {
         long indexLastUpdatePhyoffset = 0;
         maxNum = Math.min(maxNum, this.defaultMessageStore.getMessageStoreConfig().getMaxMsgsNumBatch());
         try {
+            // 对 IndexFile 的读锁上锁
             this.readWriteLock.readLock().lock();
             if (!this.indexFileList.isEmpty()) {
+                // 从 IndexFile 列表的尾部往前遍历
                 for (int i = this.indexFileList.size(); i > 0; i--) {
                     IndexFile f = this.indexFileList.get(i - 1);
                     boolean lastFile = i == this.indexFileList.size();
+                    // 如果当前的 IndexFile 是最新的一个则把 indexLastUpdateTimestamp 和 indexLastUpdatePhyoffset 设置为最新 IndexFile 的
                     if (lastFile) {
                         indexLastUpdateTimestamp = f.getEndTimestamp();
                         indexLastUpdatePhyoffset = f.getEndPhyOffset();
                     }
-
+                    // 读取 IndexFile 的 header 的 最大时间和最小时间，查看时间是否匹配>
                     if (f.isTimeMatched(begin, end)) {
-
+                        // 从文件中读取 index 中的 offset
                         f.selectPhyOffset(phyOffsets, buildKey(topic, key), maxNum, begin, end, lastFile);
                     }
 
@@ -209,7 +236,8 @@ public class IndexService {
             DispatchRequest msg = req;
             String topic = msg.getTopic();
             String keys = msg.getKeys();
-            //如果该消息的已提交偏移量小于索引文件中的最大物理偏移量,则说明是重复数据之前已经存储过,忽略本次索引构建。
+            //如果该消息在 CommitLog 的 offset 小于 IndexFile 中的消息的最大物理 offset,则说明是重复数据之前已经存储过,忽略本次索引构建。
+            // 因为正常来说，CommitLog 的 offset 是比 IndexFile 的 maxOffset 大的，出现小于的是不正常情况。
             if (msg.getCommitLogOffset() < endPhyOffset) {
                 return;
             }
@@ -223,19 +251,20 @@ public class IndexService {
                 case MessageSysFlag.TRANSACTION_ROLLBACK_TYPE:
                     return;
             }
-            // 消息唯一键不为空
+            // 单个消息存入
             if (req.getUniqKey() != null) {
-                // 把消息添加到 Hash 索引中
+                // 计算出消息的 MsgKey 放到 indexFile 的槽位，然后把数据放到 IndexFile 的 mappedByteBuffer 里并返回 IndexFile
                 indexFile = putKey(indexFile, msg, buildKey(topic, req.getUniqKey()));
                 if (indexFile == null) {
                     log.error("putKey error commitlog {} uniqkey {}", req.getCommitLogOffset(), req.getUniqKey());
                     return;
                 }
             }
-            //构建索引 key , RocketMQ 支持为同一个消息建立多个索引,多个索引键空格隔开.
+            // 多个消息则逐个存入 IndexFile
             if (keys != null && keys.length() > 0) {
                 // 分割多个出 key
                 String[] keyset = keys.split(MessageConst.KEY_SEPARATOR);
+                // 遍历这些 key 数组
                 for (int i = 0; i < keyset.length; i++) {
                     String key = keyset[i];
                     if (key.length() > 0) {
@@ -252,10 +281,14 @@ public class IndexService {
         }
     }
 
+    /**
+     * 对消息的 MsgKey 取模找到存储在 IndexFile 的槽位，然后把这些数据放入 缓冲区 mappedByteBuffer 里，
+     * @return
+     */
     private IndexFile putKey(IndexFile indexFile, DispatchRequest msg, String idxKey) {
         for (boolean ok = indexFile.putKey(idxKey, msg.getCommitLogOffset(), msg.getStoreTimestamp()); !ok; ) {
             log.warn("Index file [" + indexFile.getFileName() + "] is full, trying to create another one");
-
+            // IndexFile 文件满了，要重新创建一个，重试放入。
             indexFile = retryGetAndCreateIndexFile();
             if (null == indexFile) {
                 return null;

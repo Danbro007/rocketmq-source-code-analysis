@@ -168,6 +168,12 @@ public class CommitLog {
         return this.getData(offset, offset == 0);
     }
 
+    /**
+     * 通过消息的 offset 找到消息所在的 MappedFile 。
+     * @param offset 消息的 Offset
+     * @param returnFirstOnNotFound 如果没找到是否返回第一个 MappedFile 文件。
+     * @return 查询结果
+     */
     public SelectMappedBufferResult getData(final long offset, final boolean returnFirstOnNotFound) {
         int mappedFileSize = this.defaultMessageStore.getMessageStoreConfig().getMappedFileSizeCommitLog();
         MappedFile mappedFile = this.mappedFileQueue.findMappedFileByOffset(offset, returnFirstOnNotFound);

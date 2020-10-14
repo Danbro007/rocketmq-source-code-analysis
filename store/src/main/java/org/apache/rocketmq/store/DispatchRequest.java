@@ -30,17 +30,17 @@ public class DispatchRequest {
     private final long commitLogOffset;
     // 消息大小
     private int msgSize;
-    //消息过滤tag hashCode
+    //用于消息过滤tag hashCode
     private final long tagsCode;
     // 消息存储时间戳
     private final long storeTimestamp;
     // 消费队列偏移量
     private final long consumeQueueOffset;
-    // 消息索引 key
+    // 消息索引 key ，多个消息
     private final String keys;
     // 是否成功解析到完整的消息
     private final boolean success;
-    // 消息唯一键
+    // 消息唯一键，单个消息
     private final String uniqKey;
     // 消息系统标记
     private final int sysFlag;

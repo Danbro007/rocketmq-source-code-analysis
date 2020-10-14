@@ -31,6 +31,10 @@ public class QueryMessageResult {
 
     private int bufferTotalSize = 0;
 
+    /**
+     * 添加消息
+     * @param mapedBuffer
+     */
     public void addMessage(final SelectMappedBufferResult mapedBuffer) {
         this.messageMapedList.add(mapedBuffer);
         this.messageBufferList.add(mapedBuffer.getByteBuffer());

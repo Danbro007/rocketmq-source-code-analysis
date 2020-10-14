@@ -32,8 +32,17 @@ public class IndexFile {
     private static int hashSlotSize = 4;
     private static int indexSize = 20;
     private static int invalidIndex = 0;
+    /**
+     * hash 总槽数 500W
+     */
     private final int hashSlotNum;
+    /**
+     * 能存的索引数 2000W
+     */
     private final int indexNum;
+    /**
+     * 对应的映射文件
+     */
     private final MappedFile mappedFile;
     private final FileChannel fileChannel;
     private final MappedByteBuffer mappedByteBuffer;
@@ -90,13 +99,14 @@ public class IndexFile {
     }
 
     public boolean putKey(final String key, final long phyOffset, final long storeTimestamp) {
-        // 当前已创建的 IndexFile 文件数没有超过indexNum ，indexNum 默认为 5000000 * 4
+        // 先判断 IndexFile 里存储的 MsgKey 数量有没有超过 2000W 个
         if (this.indexHeader.getIndexCount() < this.indexNum) {
-            // 获得消息 Key 的 hashCode
+            // 对 MsgKey 进行 Hash
             int keyHash = indexKeyHashMethod(key);
-            // 对 hashCode 取模获取 slot 默认 hashSlotNum 为 5000000。
+            // 对 MsgKey 的 hashcode 取模获取要存放的槽数，hashSlotNum 默认是 500W 。
             int slotPos = keyHash % this.hashSlotNum;
             // absSlotPos = 40 + slotPos + 4
+            // 因为 IndexFile 文件的头 40 个字节要存储 IndexHeader 的，每个槽的大小为 4 个字节，所以要做下调整。
             int absSlotPos = IndexHeader.INDEX_HEADER_SIZE + slotPos * hashSlotSize;
 
             FileLock fileLock = null;
@@ -105,16 +115,16 @@ public class IndexFile {
 
                 // fileLock = this.fileChannel.lock(absSlotPos, hashSlotSize,
                 // false);
-                // 通过计算出 absSlotPos 获得对应的 slotValue
+                // 如果存在hash冲突，获取这个slot存的前一个index的计数，如果没有则值为0
                 int slotValue = this.mappedByteBuffer.getInt(absSlotPos);
                 if (slotValue <= invalidIndex || slotValue > this.indexHeader.getIndexCount()) {
                     slotValue = invalidIndex;
                 }
-
+                // 计算当前msg的存储时间和第一条msg相差秒数
                 long timeDiff = storeTimestamp - this.indexHeader.getBeginTimestamp();
 
                 timeDiff = timeDiff / 1000;
-
+                //
                 if (this.indexHeader.getBeginTimestamp() <= 0) {
                     timeDiff = 0;
                 } else if (timeDiff > Integer.MAX_VALUE) {
@@ -122,7 +132,7 @@ public class IndexFile {
                 } else if (timeDiff < 0) {
                     timeDiff = 0;
                 }
-
+                // 获取真正存储的索引位置，40 + 4 * 500W + 已经存储的索引数 * 20
                 int absIndexPos =
                     IndexHeader.INDEX_HEADER_SIZE + this.hashSlotNum * hashSlotSize
                         + this.indexHeader.getIndexCount() * indexSize;
@@ -133,17 +143,20 @@ public class IndexFile {
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8 + 4, slotValue);
 
                 this.mappedByteBuffer.putInt(absSlotPos, this.indexHeader.getIndexCount());
-
+                // 如果是第一条消息，更新header中的起始offset和起始time
                 if (this.indexHeader.getIndexCount() <= 1) {
                     this.indexHeader.setBeginPhyOffset(phyOffset);
                     this.indexHeader.setBeginTimestamp(storeTimestamp);
                 }
-
+                // 已使用的 hash 槽数 + 1
                 if (invalidIndex == slotValue) {
                     this.indexHeader.incHashSlotCount();
                 }
+                // index 数自增1
                 this.indexHeader.incIndexCount();
+                // 更新 IndexFile 的最大消息 offset
                 this.indexHeader.setEndPhyOffset(phyOffset);
+                // 更新存储时间
                 this.indexHeader.setEndTimestamp(storeTimestamp);
 
                 return true;
@@ -186,6 +199,11 @@ public class IndexFile {
         return this.indexHeader.getEndPhyOffset();
     }
 
+    /**
+     * @param begin 开始时间
+     * @param end 结束时间
+     * @return
+     */
     public boolean isTimeMatched(final long begin, final long end) {
         boolean result = begin < this.indexHeader.getBeginTimestamp() && end > this.indexHeader.getEndTimestamp();
         result = result || (begin >= this.indexHeader.getBeginTimestamp() && begin <= this.indexHeader.getEndTimestamp());
@@ -193,11 +211,23 @@ public class IndexFile {
         return result;
     }
 
+    /**
+     * 从 IndexFile 文件里读取 offset
+     * @param phyOffsets
+     * @param key
+     * @param maxNum
+     * @param begin
+     * @param end
+     * @param lock
+     */
     public void selectPhyOffset(final List<Long> phyOffsets, final String key, final int maxNum,
         final long begin, final long end, boolean lock) {
         if (this.mappedFile.hold()) {
+            // 获取 MessageKey 的 HashCode
             int keyHash = indexKeyHashMethod(key);
+            // 获取 hash 槽
             int slotPos = keyHash % this.hashSlotNum;
+            // 调整 hash 槽的位置
             int absSlotPos = IndexHeader.INDEX_HEADER_SIZE + slotPos * hashSlotSize;
 
             FileLock fileLock = null;
@@ -206,41 +236,70 @@ public class IndexFile {
                     // fileLock = this.fileChannel.lock(absSlotPos,
                     // hashSlotSize, true);
                 }
-
+                // 获取该 hash 槽上存储的 index
                 int slotValue = this.mappedByteBuffer.getInt(absSlotPos);
                 // if (fileLock != null) {
                 // fileLock.release();
                 // fileLock = null;
                 // }
-
+                // 对获取的 index 和 IndexFile 的 header 进行校验
                 if (slotValue <= invalidIndex || slotValue > this.indexHeader.getIndexCount()
                     || this.indexHeader.getIndexCount() <= 1) {
                 } else {
+                    // 通过 Index 到 IndexLinkedList 找到对应的索引信息
                     for (int nextIndexToRead = slotValue; ; ) {
+                        // 查询到的消息数量 >= maxNum 则跳出循环
                         if (phyOffsets.size() >= maxNum) {
                             break;
                         }
-
+                        /**
+                         * 回顾下 IndexFile 文件的数据结构
+                         * ----------------------------------------------|
+                         * Header       Slot Table     Index Linked List |
+                         *-----------------------------------------------|
+                         * 40 Byte      500W * 4 Byte    Index * 20 Byte |
+                         * ----------------------------------------------|
+                         *
+                         * Index 对应的数据就存储在 Index Linked List 里
+                         *
+                         * 获取消息在 IndexFile 中的索引位置
+                         *
+                         *
+                         */
                         int absIndexPos =
                             IndexHeader.INDEX_HEADER_SIZE + this.hashSlotNum * hashSlotSize
                                 + nextIndexToRead * indexSize;
-
+                        /**
+                         * 这里我们需要回顾下一个 Index 存储单元的数据结构：
+                         * -----------------------------------------------------------------|
+                         * key hashCode     CommitLog offset    timestamp   NextIndexOffset |
+                         * -----------------------------------------------------------------|
+                         *    4 Byte            12 Byte           4 Byte      4 Byte        |
+                         *------------------------------------------------------------------|
+                         * 这样一个存储单元大小为 20 Byte。
+                         *
+                         * 多个 Index 存储单元是由一个单向链表来维护的。
+                         *
+                         */
+                        // MessageKey 的 hashCode
                         int keyHashRead = this.mappedByteBuffer.getInt(absIndexPos);
+                        // 在 CommitLog 中的 offset
                         long phyOffsetRead = this.mappedByteBuffer.getLong(absIndexPos + 4);
-
+                        // 时间戳
                         long timeDiff = (long) this.mappedByteBuffer.getInt(absIndexPos + 4 + 8);
+                        // 相同 hashcode 的前一条消息的序号
                         int prevIndexRead = this.mappedByteBuffer.getInt(absIndexPos + 4 + 8 + 4);
 
                         if (timeDiff < 0) {
                             break;
                         }
-
+                        // * 1000 相当于由原来的 s 转成 ms
                         timeDiff *= 1000L;
-
                         long timeRead = this.indexHeader.getBeginTimestamp() + timeDiff;
                         boolean timeMatched = (timeRead >= begin) && (timeRead <= end);
-
+                        // 如果 MessageKey 的 hashCode 和时间匹配
                         if (keyHash == keyHashRead && timeMatched) {
+                            // 符合条件的把消息的 offset 放入 phyOffsets 里。
                             phyOffsets.add(phyOffsetRead);
                         }
 
@@ -249,7 +308,7 @@ public class IndexFile {
                             || prevIndexRead == nextIndexToRead || timeRead < begin) {
                             break;
                         }
-
+                        // 往前继续找，直到 Index 为 0
                         nextIndexToRead = prevIndexRead;
                     }
                 }

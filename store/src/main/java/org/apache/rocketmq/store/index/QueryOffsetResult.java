@@ -19,6 +19,9 @@ package org.apache.rocketmq.store.index;
 import java.util.List;
 
 public class QueryOffsetResult {
+    /**
+     * 查询到的消息 offset 列表
+     */
     private final List<Long> phyOffsets;
     private final long indexLastUpdateTimestamp;
     private final long indexLastUpdatePhyoffset;
