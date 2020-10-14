@@ -107,7 +107,7 @@ public class CommitLog {
 
     public void start() {
         this.flushCommitLogService.start();
-
+        // 弱开启内存池缓存技术，则会定时把存储在内存池中的消息刷新到 FileChannel 里。
         if (defaultMessageStore.getMessageStoreConfig().isTransientStorePoolEnable()) {
             this.commitLogService.start();
         }

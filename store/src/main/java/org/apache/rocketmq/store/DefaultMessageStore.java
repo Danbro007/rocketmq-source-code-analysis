@@ -163,7 +163,7 @@ public class DefaultMessageStore implements MessageStore {
         this.dispatcherList = new LinkedList<>();
         this.dispatcherList.addLast(new CommitLogDispatcherBuildConsumeQueue());
         this.dispatcherList.addLast(new CommitLogDispatcherBuildIndex());
-
+        // 找到存储目录里文件名为 lock 的文件
         File file = new File(StorePathConfigHelper.getLockFile(messageStoreConfig.getStorePathRootDir()));
         MappedFile.ensureDirOK(file.getParent());
         lockFile = new RandomAccessFile(file, "rw");
@@ -229,17 +229,16 @@ public class DefaultMessageStore implements MessageStore {
 
     /**
      *
-     * 开启存储服务
+     * 开启消息存储服务
      *
-     * @throws Exception
      */
     public void start() throws Exception {
-        // 尝试上锁
+        // 先对 lock 文件上锁，如果上锁失败 or 锁是共享锁就判断 MessageStore 已经启动了，这样是为了保证只有一个 MessageStore 运行。
         lock = lockFile.getChannel().tryLock(0, 1, false);
         if (lock == null || lock.isShared() || !lock.isValid()) {
             throw new RuntimeException("Lock failed,MQ already started");
         }
-
+        // 对这个 lock 文件写入 lock 字符串
         lockFile.getChannel().write(ByteBuffer.wrap("lock".getBytes()));
         lockFile.getChannel().force(true);
         {
@@ -249,6 +248,7 @@ public class DefaultMessageStore implements MessageStore {
              * 3. Calculate the reput offset according to the consume queue;
              * 4. Make sure the fall-behind messages to be dispatched before starting the commitlog, especially when the broker role are automatically changed.
              */
+            // 获取最大的物理 offset
             long maxPhysicalPosInLogicQueue = commitLog.getMinOffset();
             for (ConcurrentMap<Integer, ConsumeQueue> maps : this.consumeQueueTable.values()) {
                 for (ConsumeQueue logic : maps.values()) {
@@ -292,17 +292,20 @@ public class DefaultMessageStore implements MessageStore {
             }
             this.recoverTopicQueueTable();
         }
-
+        // 开启主从数据同步服务
         if (!messageStoreConfig.isEnableDLegerCommitLog()) {
             this.haService.start();
             this.handleScheduleMessageService(messageStoreConfig.getBrokerRole());
         }
-
+        // 定期把 ConsumeQueue 刷新到磁盘中
         this.flushConsumeQueueService.start();
+        // 开启定期刷盘操作，把 Broker 内存中的消息定期刷新到磁盘中
         this.commitLog.start();
+        // 定期打印存储状况的日志
         this.storeStatsService.start();
-
+        // 创建一个临时文件
         this.createTempFile();
+        // 开启几个定时任务
         this.addScheduleTask();
         this.shutdown = false;
     }
@@ -1359,23 +1362,23 @@ public class DefaultMessageStore implements MessageStore {
         boolean result = file.createNewFile();
         log.info(fileName + (result ? " create OK" : " already exists"));
     }
-    // 添加几个定时任务
+    // 开启几个定时任务
     private void addScheduleTask() {
-        // 开启定时清理过期文件的任务，默认是每 10 s 执行一次。
+        // 定时清理过期文件，默认是每 10 s 执行一次。
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
                 DefaultMessageStore.this.cleanFilesPeriodically();
             }
         }, 1000 * 60, this.messageStoreConfig.getCleanResourceInterval(), TimeUnit.MILLISECONDS);
-
+        // 定时检查 ConsumeQueue 和 IndexFile 文件是否完整
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
                 DefaultMessageStore.this.checkSelf();
             }
         }, 1, 10, TimeUnit.MINUTES);
-
+        // 定时检查commitLog的Lock时长(因为在write或者flush时侯会lock)，如果lock的时间过长，则打印jvm堆栈，用于监控。
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
@@ -1403,6 +1406,7 @@ public class DefaultMessageStore implements MessageStore {
         // DefaultMessageStore.this.cleanExpiredConsumerQueue();
         // }
         // }, 1, 1, TimeUnit.HOURS);
+        // 定时检查磁盘是否已满，
         this.diskCheckScheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             public void run() {
                 DefaultMessageStore.this.cleanCommitLogService.isSpaceFull();
