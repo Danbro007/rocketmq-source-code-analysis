@@ -31,7 +31,7 @@ import java.util.List;
  * Extend of consume queue, to store something not important,
  * such as message store time, filter bit map and etc.
  *
- * 消费队列的扩展，用来存储一些不重要的东西，比如消息的存储视，用来过滤消息的位图等。
+ * 消费队列的扩展，用来存储一些不重要的东西，比如消息的存储时间，用来过滤消息的位图等。
  *
  * <p/>
  * <li>1. This class is used only by {@link ConsumeQueue}</li>
@@ -233,7 +233,7 @@ public class ConsumeQueueExt {
                         size, blankSize, mappedFile.getFileName());
                     continue;
                 }
-                // 先把 cqExtUnit 里的数据写入到 tempContainer，然后通过 tempContainer 把数据写入到文件上，返回地址。
+                // 先把 cqExtUnit 里的数据写入到 tempContainer，然后通过 tempContainer 把数据写入到文件上，返回文件地址。
                 if (mappedFile.appendMessage(cqExtUnit.write(this.tempContainer), 0, size)) {
                     return decorate(wrotePosition + mappedFile.getFileFromOffset());
                 }

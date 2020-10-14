@@ -1587,7 +1587,7 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     public void putMessagePositionInfo(DispatchRequest dispatchRequest) {
-        // 通过 dispatchRequest 的 主题-队列ID 找到对应的消费队列，然后由找到的队列消费
+        // 通过 dispatchRequest 的 主题-QueueId 找到对应的 ConsumeQueue，然后由找到的 ConsumeQueue 来消费。
         ConsumeQueue cq = this.findConsumeQueue(dispatchRequest.getTopic(), dispatchRequest.getQueueId());
         cq.putMessagePositionInfoWrapper(dispatchRequest);
     }
@@ -1640,7 +1640,10 @@ public class DefaultMessageStore implements MessageStore {
             }
         }, 6, TimeUnit.SECONDS);
     }
-    // 转发消息到 ConsumeQueue
+
+    /**
+     * 转发消息到 ConsumeQueue
+     */
     class CommitLogDispatcherBuildConsumeQueue implements CommitLogDispatcher {
         // 转发操作
         @Override
@@ -2022,34 +2025,37 @@ public class DefaultMessageStore implements MessageStore {
         }
         // 真正执行转发（reput）操作
         private void doReput() {
+            // 转发指针小于 CommitLog 里 minOffset 则从 minOffset 开始转发
             if (this.reputFromOffset < DefaultMessageStore.this.commitLog.getMinOffset()) {
                 log.warn("The reputFromOffset={} is smaller than minPyOffset={}, this usually indicate that the dispatch behind too much and the commitlog has expired.",
                     this.reputFromOffset, DefaultMessageStore.this.commitLog.getMinOffset());
                 this.reputFromOffset = DefaultMessageStore.this.commitLog.getMinOffset();
             }
+            // 一直转发，直到把 CommitLog 里的消息转发玩了。
             for (boolean doNext = true; this.isCommitLogAvailable() && doNext; ) {
 
                 if (DefaultMessageStore.this.getMessageStoreConfig().isDuplicationEnable()
                     && this.reputFromOffset >= DefaultMessageStore.this.getConfirmOffset()) {
                     break;
                 }
-                // 通过 reputFromOffset 到 CommitLog 获取对应的数据
+                // 先通过 reputFromOffset 到 CommitLog 获取对应的消息
                 SelectMappedBufferResult result = DefaultMessageStore.this.commitLog.getData(reputFromOffset);
                 if (result != null) {
                     try {
-                        // 更新起始偏移量
+                        // 消息的起始 offset
                         this.reputFromOffset = result.getStartOffset();
-                        // 遍历 result 里的消息，并把它们封装成 DispatchRequest 对象
+                        // 遍历 result 里的消息，对这些消息进行逐个检查并封装成 DispatchRequest 对象
                         for (int readSize = 0; readSize < result.getSize() && doNext; ) {
                             DispatchRequest dispatchRequest =
                                 DefaultMessageStore.this.commitLog.checkMessageAndReturnSize(result.getByteBuffer(), false, false);
+                            // 消息大小
                             int size = dispatchRequest.getBufferSize() == -1 ? dispatchRequest.getMsgSize() : dispatchRequest.getBufferSize();
                             // 判断消息是否解析成功
                             if (dispatchRequest.isSuccess()) {
                                 if (size > 0) {
                                     // 执行消息的分发既发送到 ConsumeQueue 和 IndexFile
                                     DefaultMessageStore.this.doDispatch(dispatchRequest);
-                                    // 转发完毕后，如果当前 Broker 是 Master 并且开启了长轮询则会使用消息到达监听器，当有新的消息到达时
+                                    // 转发完毕后，如果当前 Broker 是 Master 并且开启了长轮询则会使用 messageArrivingListener，当有新的消息到达时
                                     // 会通知 pullRequestHoldService 来处理。
                                     if (BrokerRole.SLAVE != DefaultMessageStore.this.getMessageStoreConfig().getBrokerRole()
                                         && DefaultMessageStore.this.brokerConfig.isLongPollingEnable()) {
@@ -2058,9 +2064,11 @@ public class DefaultMessageStore implements MessageStore {
                                             dispatchRequest.getTagsCode(), dispatchRequest.getStoreTimestamp(),
                                             dispatchRequest.getBitMap(), dispatchRequest.getPropertiesMap());
                                     }
-
+                                    // 更新转发消息的指针
                                     this.reputFromOffset += size;
+                                    // 更新已读取的消息大小
                                     readSize += size;
+                                    // 如果是 Slave 则记录各种统计数据。
                                     if (DefaultMessageStore.this.getMessageStoreConfig().getBrokerRole() == BrokerRole.SLAVE) {
                                         DefaultMessageStore.this.storeStatsService
                                             .getSinglePutMessageTopicTimesTotal(dispatchRequest.getTopic()).incrementAndGet();
@@ -2068,11 +2076,15 @@ public class DefaultMessageStore implements MessageStore {
                                             .getSinglePutMessageTopicSizeTotal(dispatchRequest.getTopic())
                                             .addAndGet(dispatchRequest.getMsgSize());
                                     }
-                                } else if (size == 0) {
+                                }
+                                // 说明到文件的尾部了，则跳到下一个文件转发消息。
+                                else if (size == 0) {
                                     this.reputFromOffset = DefaultMessageStore.this.commitLog.rollNextFile(this.reputFromOffset);
                                     readSize = result.getSize();
                                 }
-                            } else if (!dispatchRequest.isSuccess()) {
+                            }
+                            // 没有通过消息完整性检查
+                            else if (!dispatchRequest.isSuccess()) {
 
                                 if (size > 0) {
                                     log.error("[BUG]read total count not equals msg total size. reputFromOffset={}", reputFromOffset);

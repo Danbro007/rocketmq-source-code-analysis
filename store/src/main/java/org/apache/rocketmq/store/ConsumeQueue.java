@@ -42,6 +42,9 @@ public class ConsumeQueue {
 
     private final String storePath;
     private final int mappedFileSize;
+    /**
+     * ConsumeQueue 里最新存储的消息 offset
+     */
     private long maxPhysicOffset = -1;
     private volatile long minLogicOffset = 0;
     private ConsumeQueueExt consumeQueueExt = null;
@@ -379,32 +382,46 @@ public class ConsumeQueue {
     public long getMinOffsetInQueue() {
         return this.minLogicOffset / CQ_STORE_UNIT_SIZE;
     }
-    // 消费队列存储消息
+
+    /**
+     * 在 ConsumeQueue 存储消息
+     * @param request 消息分发请求
+     */
     public void putMessagePositionInfoWrapper(DispatchRequest request) {
         // 最大重试次数
         final int maxRetries = 30;
+        // ConsumeQueue 是否支持写入
         boolean canWrite = this.defaultMessageStore.getRunningFlags().isCQWriteable();
         for (int i = 0; i < maxRetries && canWrite; i++) {
+            // tag 的 hashCode
             long tagsCode = request.getTagsCode();
+            // 是否支持 consumeQueueExt
             if (isExtWriteEnable()) {
-                // 消费队列的基本存储单元
+                // 存储着 ConsumeQueue 的存储单元
                 ConsumeQueueExt.CqExtUnit cqExtUnit = new ConsumeQueueExt.CqExtUnit();
                 // 对存储单元进行设置
+                // 这里的 bitMap 其实就是布隆过滤器，来实现过滤功能。
                 cqExtUnit.setFilterBitMap(request.getBitMap());
+                // 记录存储时间
                 cqExtUnit.setMsgStoreTime(request.getStoreTimestamp());
+                // tag 的 Hashcode
                 cqExtUnit.setTagsCode(request.getTagsCode());
-                // 把消息存储到消费队列里。
+                // 把数据存到 ConsumeQueue 里，并返回存储地址
                 long extAddr = this.consumeQueueExt.put(cqExtUnit);
                 if (isExtAddr(extAddr)) {
+                    // 把 tagsCode 设置为存储地址
                     tagsCode = extAddr;
                 } else {
                     log.warn("Save consume queue extend fail, So just save tagsCode! {}, topic:{}, queueId:{}, offset:{}", cqExtUnit,
                         topic, queueId, request.getCommitLogOffset());
                 }
             }
+            // 在 ConsumeQueue 里存储消息
             boolean result = this.putMessagePositionInfo(request.getCommitLogOffset(),
                 request.getMsgSize(), tagsCode, request.getConsumeQueueOffset());
+            // 写入成功
             if (result) {
+                // 如果是 Broker 是 Slave or 开启了 enableDLegerCommitLog 则记录下存储时间。
                 if (this.defaultMessageStore.getMessageStoreConfig().getBrokerRole() == BrokerRole.SLAVE ||
                     this.defaultMessageStore.getMessageStoreConfig().isEnableDLegerCommitLog()) {
                     this.defaultMessageStore.getStoreCheckpoint().setPhysicMsgTimestamp(request.getStoreTimestamp());
@@ -429,25 +446,29 @@ public class ConsumeQueue {
         this.defaultMessageStore.getRunningFlags().makeLogicsQueueError();
     }
 
+    /**
+     * 存储消息到磁盘 ，ConsumeQueue 里也是用 MappedFile 存储的。其实就是把 CqExtUnit 对象写入到文件中。
+     */
     private boolean putMessagePositionInfo(final long offset, final int size, final long tagsCode,
         final long cqOffset) {
-
+        // 第一次不会进入这里，maxPhysicOffset 初始化的时候为 - 1，后面会更新。
         if (offset + size <= this.maxPhysicOffset) {
             log.warn("Maybe try to build consume queue repeatedly maxPhysicOffset={} phyOffset={}", maxPhysicOffset, offset);
             return true;
         }
-
+        // 重置缓冲区，大小为一个 CQUnit 的大小 20 字节
+        // 其中这里面 offset 占8个字节，消息 size 占用4个字节，tagcode 占用8个字节
         this.byteBufferIndex.flip();
         this.byteBufferIndex.limit(CQ_STORE_UNIT_SIZE);
         this.byteBufferIndex.putLong(offset);
         this.byteBufferIndex.putInt(size);
         this.byteBufferIndex.putLong(tagsCode);
-
+        // 存储后的指针位置
         final long expectLogicOffset = cqOffset * CQ_STORE_UNIT_SIZE;
-
+        // 获取最新的 MappedFile
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile(expectLogicOffset);
         if (mappedFile != null) {
-
+            // 对新创建的文件，写将所有 CQUnit 初始化0值
             if (mappedFile.isFirstCreateInQueue() && cqOffset != 0 && mappedFile.getWrotePosition() == 0) {
                 this.minLogicOffset = expectLogicOffset;
                 this.mappedFileQueue.setFlushedWhere(expectLogicOffset);
@@ -477,7 +498,9 @@ public class ConsumeQueue {
                     );
                 }
             }
+            // 更新 ConsumeQueue 里最新存储的消息 offset ，原来提交到 ConsumeQueue 的消息 offset + 本次提交的消息大小。
             this.maxPhysicOffset = offset + size;
+            // 把 byteBufferIndex 里的数据（CQUnit）写入到 MappedFile 里
             return mappedFile.appendMessage(this.byteBufferIndex.array());
         }
         return false;

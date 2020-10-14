@@ -276,6 +276,8 @@ public class CommitLog {
     /**
      * check the message and returns the message size
      *
+     * 检查消息并返回消息大小
+     *
      * @return 0 Come the end of the file // >0 Normal messages // -1 Message checksum failure
      */
     public DispatchRequest checkMessageAndReturnSize(java.nio.ByteBuffer byteBuffer, final boolean checkCRC,
@@ -1225,6 +1227,7 @@ public class CommitLog {
     }
 
     public long rollNextFile(final long offset) {
+        //
         int mappedFileSize = this.defaultMessageStore.getMessageStoreConfig().getMappedFileSizeCommitLog();
         return offset + mappedFileSize - offset % mappedFileSize;
     }
@@ -1899,7 +1902,7 @@ public class CommitLog {
             AppendMessageResult result = new AppendMessageResult(AppendMessageStatus.PUT_OK, wroteOffset, totalMsgLen, msgIdBuilder.toString(),
                     messageExtBatch.getStoreTimestamp(), beginQueueOffset, CommitLog.this.defaultMessageStore.now() - beginTimeMills);
             result.setMsgNum(msgNum);
-            // 更新当前 Queue 的消费记录
+            // 更新当前 ConsumeQueue 的消费记录
             CommitLog.this.topicQueueTable.put(key, queueOffset);
             // 返回 PUT_OK 结果
             return result;

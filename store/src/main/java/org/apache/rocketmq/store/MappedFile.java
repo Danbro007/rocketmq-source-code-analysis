@@ -266,16 +266,24 @@ public class MappedFile extends ReferenceResource {
         return this.fileFromOffset;
     }
 
+    /**
+     * 追加消息
+     * @param data 要写入的数据
+     * @return
+     */
     public boolean appendMessage(final byte[] data) {
+        // 当前的写指针位置
         int currentPos = this.wrotePosition.get();
-
+        // 判断要写入的数据是否超过文件剩余容量
         if ((currentPos + data.length) <= this.fileSize) {
             try {
+                // 把数据写入到 FileChannel 里
                 this.fileChannel.position(currentPos);
                 this.fileChannel.write(ByteBuffer.wrap(data));
             } catch (Throwable e) {
                 log.error("Error occurred when append message to mappedFile.", e);
             }
+            // 更新写指针
             this.wrotePosition.addAndGet(data.length);
             return true;
         }
