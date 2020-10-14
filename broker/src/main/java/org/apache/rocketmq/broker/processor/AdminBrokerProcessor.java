@@ -139,7 +139,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 
 /**
- * 接受管理命令，如topic创建等
+ * 负责处理管理员发送的命令，如 topic 创建等
  */
 public class AdminBrokerProcessor extends AsyncNettyRequestProcessor implements NettyRequestProcessor {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
@@ -149,10 +149,18 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor implements 
         this.brokerController = brokerController;
     }
 
+    /**
+     * 根据请求代码执行不同逻辑
+     * @param ctx
+     * @param request
+     * @return
+     * @throws RemotingCommandException
+     */
     @Override
     public RemotingCommand processRequest(ChannelHandlerContext ctx,
         RemotingCommand request) throws RemotingCommandException {
         switch (request.getCode()) {
+            // 创建更新 topic
             case RequestCode.UPDATE_AND_CREATE_TOPIC:
                 return this.updateAndCreateTopic(ctx, request);
             case RequestCode.DELETE_TOPIC_IN_BROKER:
@@ -255,7 +263,7 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor implements 
         final CreateTopicRequestHeader requestHeader =
             (CreateTopicRequestHeader) request.decodeCommandCustomHeader(CreateTopicRequestHeader.class);
         log.info("updateAndCreateTopic called by {}", RemotingHelper.parseChannelRemoteAddr(ctx.channel()));
-
+        // 对 topic 进行检查校验
         String topic = requestHeader.getTopic();
 
         if (!TopicValidator.validateTopic(topic, response)) {
@@ -271,9 +279,9 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor implements 
         topicConfig.setTopicFilterType(requestHeader.getTopicFilterTypeEnum());
         topicConfig.setPerm(requestHeader.getPerm());
         topicConfig.setTopicSysFlag(requestHeader.getTopicSysFlag() == null ? 0 : requestHeader.getTopicSysFlag());
-
+        // 更新 topic 配置
         this.brokerController.getTopicConfigManager().updateTopicConfig(topicConfig);
-
+        // 同步方法
         this.brokerController.registerIncrementBrokerData(topicConfig, this.brokerController.getTopicConfigManager().getDataVersion());
 
         response.setCode(ResponseCode.SUCCESS);

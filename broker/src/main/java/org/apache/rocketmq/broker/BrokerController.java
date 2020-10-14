@@ -952,6 +952,7 @@ public class BrokerController {
 
     public synchronized void registerIncrementBrokerData(TopicConfig topicConfig, DataVersion dataVersion) {
         TopicConfig registerTopicConfig = topicConfig;
+        // topic 的读写权限判断，只读的不支持修改
         if (!PermName.isWriteable(this.getBrokerConfig().getBrokerPermission())
             || !PermName.isReadable(this.getBrokerConfig().getBrokerPermission())) {
             registerTopicConfig =
@@ -964,7 +965,7 @@ public class BrokerController {
         TopicConfigSerializeWrapper topicConfigSerializeWrapper = new TopicConfigSerializeWrapper();
         topicConfigSerializeWrapper.setDataVersion(dataVersion);
         topicConfigSerializeWrapper.setTopicConfigTable(topicConfigTable);
-
+        // 通知所有的 NameServer
         doRegisterBrokerAll(true, false, topicConfigSerializeWrapper);
     }
 
@@ -992,6 +993,11 @@ public class BrokerController {
         }
     }
 
+    /**
+     *
+     * 同步到所有的 NameServer
+     *
+     */
     private void doRegisterBrokerAll(boolean checkOrderConfig, boolean oneway,
         TopicConfigSerializeWrapper topicConfigWrapper) {
         // 向所有的 nameserver 发送心跳并返回结果

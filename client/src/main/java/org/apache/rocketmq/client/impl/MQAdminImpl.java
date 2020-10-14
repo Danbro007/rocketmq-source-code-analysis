@@ -57,6 +57,9 @@ import org.apache.rocketmq.remoting.exception.RemotingException;
 import org.apache.rocketmq.remoting.netty.ResponseFuture;
 import org.apache.rocketmq.remoting.protocol.RemotingCommand;
 
+/**
+ * 后台管理员
+ */
 public class MQAdminImpl {
 
     private final InternalLogger log = ClientLogger.getLog();
@@ -79,20 +82,27 @@ public class MQAdminImpl {
         createTopic(key, newTopic, queueNum, 0);
     }
 
+    /**
+     * 创建 Topic，一般是用户在网页后台创建。
+     */
     public void createTopic(String key, String newTopic, int queueNum, int topicSysFlag) throws MQClientException {
         try {
+            // 参数校验
             Validators.checkTopic(newTopic);
             Validators.isSystemTopic(newTopic);
+            // 获取订阅这个 topic 的路由信息，如果想在所有的 broker 创建，则可以查找 DefaultTopic 这个 topic 的路由信息，因为所有 Broker 都订阅了这个 topic。
             TopicRouteData topicRouteData = this.mQClientFactory.getMQClientAPIImpl().getTopicRouteInfoFromNameServer(key, timeoutMillis);
+            // Broker 的信息
             List<BrokerData> brokerDataList = topicRouteData.getBrokerDatas();
             if (brokerDataList != null && !brokerDataList.isEmpty()) {
+                // 对 Broker 排序
                 Collections.sort(brokerDataList);
 
                 boolean createOKAtLeastOnce = false;
                 MQClientException exception = null;
 
                 StringBuilder orderTopicString = new StringBuilder();
-
+                // 遍历每个 Broker 找到 Master，然后在 Master 创建 topic，之后 Master 会把这个 topic 的订阅信息同步到 Slave。
                 for (BrokerData brokerData : brokerDataList) {
                     String addr = brokerData.getBrokerAddrs().get(MixAll.MASTER_ID);
                     if (addr != null) {
@@ -100,10 +110,11 @@ public class MQAdminImpl {
                         topicConfig.setReadQueueNums(queueNum);
                         topicConfig.setWriteQueueNums(queueNum);
                         topicConfig.setTopicSysFlag(topicSysFlag);
-
                         boolean createOK = false;
+                        // 有 4 次重试机会
                         for (int i = 0; i < 5; i++) {
                             try {
+                                // 发送创建 topic 的请求
                                 this.mQClientFactory.getMQClientAPIImpl().createTopic(addr, key, topicConfig, timeoutMillis);
                                 createOK = true;
                                 createOKAtLeastOnce = true;
