@@ -233,7 +233,10 @@ public class MQClientInstance {
 
         return mqList;
     }
-    // 启动客户端
+
+    /**
+     * 启动客户端
+    */
     public void start() throws MQClientException {
         // 同步
         synchronized (this) {

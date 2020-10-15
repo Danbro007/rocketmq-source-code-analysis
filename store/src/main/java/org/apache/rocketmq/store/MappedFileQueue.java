@@ -457,14 +457,23 @@ public class MappedFileQueue {
         return deleteCount;
     }
 
+    /**
+     * CommitLog 刷盘
+     * @param flushLeastPages 每次刷盘至少需要的页数
+     * @return 刷盘成功的结果
+     */
     public boolean flush(final int flushLeastPages) {
         boolean result = true;
+        // 通过 CommitLog 的刷盘 offset 找到 MappedFile
         MappedFile mappedFile = this.findMappedFileByOffset(this.flushedWhere, this.flushedWhere == 0);
         if (mappedFile != null) {
             long tmpTimeStamp = mappedFile.getStoreTimestamp();
+            // 执行刷盘并返回写入了多少
             int offset = mappedFile.flush(flushLeastPages);
+            // mappedFile 文件刷盘后的指针 = 文件名 + 写入大小
             long where = mappedFile.getFileFromOffset() + offset;
             result = where == this.flushedWhere;
+            // 更新 CommitLog 的刷盘指针
             this.flushedWhere = where;
             if (0 == flushLeastPages) {
                 this.storeTimestamp = tmpTimeStamp;
@@ -473,14 +482,19 @@ public class MappedFileQueue {
 
         return result;
     }
-    // 提交数据到 FileChannel ,前提是 transientStorePoolEnable 开启了
+
+    /**
+     * 提交数据到 FileChannel ,前提是 transientStorePoolEnable 开启了
+     * @param commitLeastPages 最少提交的页数
+     * @return 提交结果
+     */
     public boolean commit(final int commitLeastPages) {
         boolean result = true;
-        // 通过提交偏移量找到对应 MappedFile
+        // 通过提交 offset 找到对应 MappedFile
         MappedFile mappedFile = this.findMappedFileByOffset(this.committedWhere, this.committedWhere == 0);
         // 如果找到了映射文件则把消息提交到 FileChannel
         if (mappedFile != null) {
-            // 提交数据后的指针，次数数据已经在 FileChannel 里了等到这刷盘
+            // 提交数据后的指针，此时数据已经在 FileChannel 里了等待刷盘
             int offset = mappedFile.commit(commitLeastPages);
             // 当前消息偏移量 + 已提交的偏移量
             long where = mappedFile.getFileFromOffset() + offset;

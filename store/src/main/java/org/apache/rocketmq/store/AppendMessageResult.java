@@ -22,15 +22,23 @@ package org.apache.rocketmq.store;
 public class AppendMessageResult {
     // Return code
     private AppendMessageStatus status;
-    // Where to start writing
+    /**
+     * 写指针的 offset
+     */
     private long wroteOffset;
-    // Write Bytes
+    /**
+     * 要写入的字节商户
+     */
     private int wroteBytes;
     // Message ID
     private String msgId;
-    // Message storage timestamp
+    /**
+     * 消息存储时间
+     */
     private long storeTimestamp;
-    // Consume queue's offset(step by one)
+    /**
+     * 在 ConsumeQueue 中的 offset
+     */
     private long logicsOffset;
     private long pagecacheRT = 0;
 

@@ -340,7 +340,7 @@ public class MappedFile extends ReferenceResource {
                 } catch (Throwable e) {
                     log.error("Error occurred when force data to disk.", e);
                 }
-                // 更新刷盘位置
+                // 更新当前 MappedFile 的刷盘位置
                 this.flushedPosition.set(value);
                 // 释放同步锁
                 this.release();
@@ -389,7 +389,10 @@ public class MappedFile extends ReferenceResource {
         // 返回提交数据后的指针
         return this.committedPosition.get();
     }
-    // 把消息放入 writeBuffer 里，然后把 writeBuffer 里的数据写入到 FileChannel
+
+    /**
+     * 把消息放入 writeBuffer 里，然后把 writeBuffer 里的数据写入到 FileChannel
+     */
     protected void commit0(final int commitLeastPages) {
         // 写指针
         int writePos = this.wrotePosition.get();
@@ -398,7 +401,7 @@ public class MappedFile extends ReferenceResource {
         // 进入这个判断说明还有数据没有提交上去
         if (writePos - this.committedPosition.get() > 0) {
             try {
-                // 复制共享内存区域（只读）
+                // 把提交的数据放入 writeBuffer 里
                 ByteBuffer byteBuffer = writeBuffer.slice();
                 // 设置提交位置为上次提交的位置
                 byteBuffer.position(lastCommittedPosition);

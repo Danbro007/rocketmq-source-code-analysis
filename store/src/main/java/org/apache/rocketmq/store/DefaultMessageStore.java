@@ -71,11 +71,11 @@ public class DefaultMessageStore implements MessageStore {
     private final CommitLog commitLog;
     // 存储 topic 和对应的消费队列
     private final ConcurrentMap<String/* topic */, ConcurrentMap<Integer/* queueId */, ConsumeQueue>> consumeQueueTable;
-    // 消息队列刷盘服务类
+    // ConsumeQueue 刷盘服务类
     private final FlushConsumeQueueService flushConsumeQueueService;
     // 清除 commitlog 服务类
     private final CleanCommitLogService cleanCommitLogService;
-    // 清除消费者队列服务类
+    // 清除 ConsumeQueue 服务类
     private final CleanConsumeQueueService cleanConsumeQueueService;
     // 索引文件实现类
     private final IndexService indexService;
@@ -1938,6 +1938,9 @@ public class DefaultMessageStore implements MessageStore {
         }
     }
 
+    /**
+     *
+     */
     class FlushConsumeQueueService extends ServiceThread {
         private static final int RETRY_TIMES_OVER = 3;
         private long lastFlushTimestamp = 0;

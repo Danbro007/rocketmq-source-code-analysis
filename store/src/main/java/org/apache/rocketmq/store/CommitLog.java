@@ -81,7 +81,7 @@ public class CommitLog {
         this.mappedFileQueue = new MappedFileQueue(defaultMessageStore.getMessageStoreConfig().getStorePathCommitLog(),
                 defaultMessageStore.getMessageStoreConfig().getMappedFileSizeCommitLog(), defaultMessageStore.getAllocateMappedFileService());
         this.defaultMessageStore = defaultMessageStore;
-
+        // 同步
         if (FlushDiskType.SYNC_FLUSH == defaultMessageStore.getMessageStoreConfig().getFlushDiskType()) {
             this.flushCommitLogService = new GroupCommitService();
         } else {
@@ -876,9 +876,10 @@ public class CommitLog {
         MappedFile unlockMappedFile = null;
         // 获取最后一个内存映射文件，既最新的内存映射文件。
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile();
-        // 上锁
+        // 对 CommitLog 上锁
         putMessageLock.lock(); //spin or ReentrantLock ,depending on store config
         try {
+            // 上锁时间
             long beginLockTimestamp = this.defaultMessageStore.getSystemClock().now();
             this.beginTimeInLock = beginLockTimestamp;
 
@@ -1003,11 +1004,14 @@ public class CommitLog {
         return CompletableFuture.completedFuture(PutMessageStatus.PUT_OK);
     }
 
-    // 处理磁盘刷盘
+    /**
+     * 处理刷盘
+     */
     public void handleDiskFlush(AppendMessageResult result, PutMessageResult putMessageResult, MessageExt messageExt) {
         // Synchronization flush
         // 同步刷盘
         if (FlushDiskType.SYNC_FLUSH == this.defaultMessageStore.getMessageStoreConfig().getFlushDiskType()) {
+            // 获取刷盘服务
             final GroupCommitService service = (GroupCommitService) this.flushCommitLogService;
             // 判断是否需要同步等待刷盘结果
             if (messageExt.isWaitStoreMsgOK()) {
@@ -1039,7 +1043,7 @@ public class CommitLog {
         // Asynchronous flush
         // 异步刷盘
         else {
-            // 如果未开启 TransientStorePoolEnable 则会唤醒 flushCommitLogService 线程，否则会唤醒 commitLogService 线程。
+            // 如果未开启 TransientStorePoolEnable 则会唤醒 flushCommitLogService 线程，否则会唤醒 CommitRealTimeService 线程。
             if (!this.defaultMessageStore.getMessageStoreConfig().isTransientStorePoolEnable()) {
                 flushCommitLogService.wakeup();
             } else {
@@ -1300,7 +1304,9 @@ public class CommitLog {
         protected static final int RETRY_TIMES_OVER = 10;
     }
 
-    // 开启了 TransientStorePool
+    /**
+     * 开启了 TransientStorePool 会运行这个服务，是先把数据放入 writeBuffer 里，然后 writeBuffer 会提交到 FileChannel 里。
+     */
     class CommitRealTimeService extends FlushCommitLogService {
 
         private long lastCommitTimestamp = 0;
@@ -1361,7 +1367,9 @@ public class CommitLog {
         }
     }
 
-    // 刷盘工作线程
+    /**
+     * 刷盘工作线程
+     */
     class FlushRealTimeService extends FlushCommitLogService {
         private long lastFlushTimestamp = 0;
         private long printTimes = 0;
@@ -1423,6 +1431,7 @@ public class CommitLog {
             }
 
             // Normal shutdown, to ensure that all the flush before exit
+            // 正常关闭，为了确保在退出前所有的刷盘操作都完成了
             boolean result = false;
             for (int i = 0; i < RETRY_TIMES_OVER && !result; i++) {
                 result = CommitLog.this.mappedFileQueue.flush(0);
@@ -1450,6 +1459,9 @@ public class CommitLog {
         }
     }
 
+    /**
+     * 批量提交请求
+     */
     public static class GroupCommitRequest {
         // 刷盘点提交指针
         private final long nextOffset;
@@ -1493,7 +1505,7 @@ public class CommitLog {
         // 读请求
         private volatile List<GroupCommitRequest> requestsRead = new ArrayList<GroupCommitRequest>();
 
-        // 添加请求
+        // 添加请求到 requestsWrite 里
         public synchronized void putRequest(final GroupCommitRequest request) {
             synchronized (this.requestsWrite) {
                 this.requestsWrite.add(request);
@@ -1501,14 +1513,21 @@ public class CommitLog {
             this.wakeup();
         }
 
-        // 把 requestsWrite 和 requestsRead 相互交换
+        /**
+         * 把 requestsWrite 和 requestsRead 相互交换
+         */
         private void swapRequests() {
             List<GroupCommitRequest> tmp = this.requestsWrite;
             this.requestsWrite = this.requestsRead;
             this.requestsRead = tmp;
         }
 
-        // 执行提交操作
+        /**
+         * 执行提交操作
+         *
+         * requestsRead 和 requestsWrite 已经交换过了，requestsRead 里存的是 GroupCommitRequest 。
+         *
+         */
         private void doCommit() {
             // 对读请求列表上同步锁
             synchronized (this.requestsRead) {
@@ -1522,8 +1541,9 @@ public class CommitLog {
                         // 最多执行两次刷盘
                         for (int i = 0; i < 2 && !flushOK; i++) {
                             // 如果刷盘指针大于等于提交刷盘指针则说明刷盘成功
+                            // 如果已经刷盘的 offset 大于等于下一个新消息的 offset 说明刷盘成功了
                             flushOK = CommitLog.this.mappedFileQueue.getFlushedWhere() >= req.getNextOffset();
-                            // 如果没有成功说明有一个消息是跨文件存储的，需要立马刷盘。
+                            // 执行刷盘
                             if (!flushOK) {
                                 CommitLog.this.mappedFileQueue.flush(0);
                             }
@@ -1547,13 +1567,15 @@ public class CommitLog {
             }
         }
 
-        // 运行
+        /**
+         * 每次执行提交后会把
+         */
         public void run() {
             CommitLog.log.info(this.getServiceName() + " service started");
             // 循环一直执行
             while (!this.isStopped()) {
                 try {
-                    // 每次循环等待 10 ms
+                    // 每次等待 10 ms，在等待的时候会把 requestsWrite 和 requestsRead 相互交换一次。
                     this.waitForRunning(10);
                     // 执行提交
                     this.doCommit();

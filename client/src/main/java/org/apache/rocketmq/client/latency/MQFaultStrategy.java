@@ -28,11 +28,17 @@ import org.apache.rocketmq.common.message.MessageQueue;
 public class MQFaultStrategy {
     private final static InternalLogger log = ClientLogger.getLog();
     private final LatencyFaultTolerance<String> latencyFaultTolerance = new LatencyFaultToleranceImpl();
-    // Broker 故障延迟机制
+    /**
+     * Broker 故障延迟机制
+     */
     private boolean sendLatencyFaultEnable = false;
-    //根据currentLatency本地消息发送延迟,从latencyMax尾部向前找到第一个比currentLatency小的索引,如果没有找到,返回0
+    /**
+     * 根据currentLatency本地消息发送延迟,从latencyMax尾部向前找到第一个比currentLatency小的索引,如果没有找到,返回0
+     */
     private long[] latencyMax = {50L, 100L, 550L, 1000L, 2000L, 3000L, 15000L};
-    //根据这个索引从notAvailableDuration取出对应的时间,在该时长内,Broker设置为不可用
+    /**
+     * 根据这个索引从notAvailableDuration取出对应的时间,在该时长内,Broker设置为不可用
+     */
     private long[] notAvailableDuration = {0L, 0L, 30000L, 60000L, 120000L, 180000L, 600000L};
 
     public long[] getNotAvailableDuration() {

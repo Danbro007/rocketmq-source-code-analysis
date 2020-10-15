@@ -553,11 +553,11 @@ public class DefaultMQProducerImpl implements MQProducerInner {
     }
 
     /**
-     * 同步发送消息的实现方法
-     * @param msg
-     * @param communicationMode
-     * @param sendCallback
-     * @param timeout
+     * 发送消息的实现方法
+     * @param msg 发送的消息
+     * @param communicationMode 发送模式，同步还是异步
+     * @param sendCallback 异步需要的回调函数
+     * @param timeout 超时时间
      * @return
      * @throws MQClientException
      * @throws RemotingException
