@@ -30,33 +30,63 @@ public interface MQProducer extends MQAdmin {
     void start() throws MQClientException;
 
     void shutdown();
-    // 查找该主题下所有的消息
+
+    /**
+     * 查找该主题下所有的消息
+     */
     List<MessageQueue> fetchPublishMessageQueues(final String topic) throws MQClientException;
-    // 同步发送消息
+
+    /**
+     * 同步发送消息
+     */
     SendResult send(final Message msg) throws MQClientException, RemotingException, MQBrokerException,
         InterruptedException;
-    // 同步发送消息，带有超时时间
+
+    /**
+     * 同步发送消息，带有超时时间
+     */
     SendResult send(final Message msg, final long timeout) throws MQClientException,
         RemotingException, MQBrokerException, InterruptedException;
-    // 异步发送消息，接收到响应后会执行回调函数
+
+    /**
+     * 异步发送消息，接收到响应后会执行回调函数
+     */
     void send(final Message msg, final SendCallback sendCallback) throws MQClientException,
         RemotingException, InterruptedException;
-    // 异步发送消息，接收到响应后会执行回调函数，并由超时时间。
+
+    /**
+     * 异步发送消息，接收到响应后会执行回调函数，并由超时时间。
+     */
     void send(final Message msg, final SendCallback sendCallback, final long timeout)
         throws MQClientException, RemotingException, InterruptedException;
-    // 单向发送消息
+
+    /**
+     * 单向发送消息，不等待结果。
+     */
     void sendOneway(final Message msg) throws MQClientException, RemotingException,
         InterruptedException;
-    // 向指定队列同步发送消息
+
+    /**
+     * 向指定的 MessageQueue 同步发送消息
+     */
     SendResult send(final Message msg, final MessageQueue mq) throws MQClientException,
         RemotingException, MQBrokerException, InterruptedException;
-    // 向指定队列同步发送消息，并带有超时时间。
+
+    /**
+     *  向指定 MessageQueue 同步发送消息，并带有超时时间。
+     */
     SendResult send(final Message msg, final MessageQueue mq, final long timeout)
         throws MQClientException, RemotingException, MQBrokerException, InterruptedException;
-    // 异步发送消息给指定队列，接收到响应后会执行回调函数。
+
+    /**
+     * 异步发送消息给指定 MessageQueue，接收到响应后会执行回调函数。
+     */
     void send(final Message msg, final MessageQueue mq, final SendCallback sendCallback)
         throws MQClientException, RemotingException, InterruptedException;
-    // 异步发送消息给指定队列，接收到响应后会执行回调函数，并由超时时间。
+
+    /**
+     *  异步发送消息给指定队列，接收到响应后会执行回调函数，并由超时时间。
+     */
     void send(final Message msg, final MessageQueue mq, final SendCallback sendCallback, long timeout)
         throws MQClientException, RemotingException, InterruptedException;
 
@@ -87,7 +117,9 @@ public interface MQProducer extends MQAdmin {
     TransactionSendResult sendMessageInTransaction(final Message msg,
         final Object arg) throws MQClientException;
 
-    //批量发送消息
+    /**
+     * 批量发送消息
+     */
     SendResult send(final Collection<Message> msgs) throws MQClientException, RemotingException, MQBrokerException,
         InterruptedException;
 

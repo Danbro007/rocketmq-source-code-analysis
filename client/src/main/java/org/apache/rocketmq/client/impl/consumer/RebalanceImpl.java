@@ -136,6 +136,11 @@ public abstract class RebalanceImpl {
         return result;
     }
 
+    /**
+     * 对 MessageQueue 上锁
+     * @param mq MessageQueue
+     * @return 上锁结果
+     */
     public boolean lock(final MessageQueue mq) {
         FindBrokerResult findBrokerResult = this.mQClientFactory.findBrokerAddressInSubscribe(mq.getBrokerName(), MixAll.MASTER_ID, true);
         if (findBrokerResult != null) {
@@ -170,28 +175,32 @@ public abstract class RebalanceImpl {
     }
 
     /**
-     *
+     * 对所有的 MessageQueue 进行锁定
      */
     public void lockAll() {
+        // key 是 BrokerName，value 是这个 Broker 的 MessageQueue
         HashMap<String, Set<MessageQueue>> brokerMqs = this.buildProcessQueueTableByBrokerName();
 
         Iterator<Entry<String, Set<MessageQueue>>> it = brokerMqs.entrySet().iterator();
+        // 获取到每个 Broker 对应的 MessageQueue 集合
         while (it.hasNext()) {
             Entry<String, Set<MessageQueue>> entry = it.next();
             final String brokerName = entry.getKey();
             final Set<MessageQueue> mqs = entry.getValue();
-
             if (mqs.isEmpty())
                 continue;
-
+            // 判断当前的 Broker 是不是 Master
             FindBrokerResult findBrokerResult = this.mQClientFactory.findBrokerAddressInSubscribe(brokerName, MixAll.MASTER_ID, true);
+            // 当前 Broker 是 Master
             if (findBrokerResult != null) {
+                // 用来对多个 MessageQueue 上锁
                 LockBatchRequestBody requestBody = new LockBatchRequestBody();
                 requestBody.setConsumerGroup(this.consumerGroup);
                 requestBody.setClientId(this.mQClientFactory.getClientId());
                 requestBody.setMqSet(mqs);
 
                 try {
+                    // 对 Broker 的所有 MessageQueue 上锁并返回成功上锁的 MessageQueue
                     Set<MessageQueue> lockOKMQSet =
                         this.mQClientFactory.getMQClientAPIImpl().lockBatchMQ(findBrokerResult.getBrokerAddr(), requestBody, 1000);
 
@@ -206,6 +215,7 @@ public abstract class RebalanceImpl {
                             processQueue.setLastLockTimestamp(System.currentTimeMillis());
                         }
                     }
+                    // 如果有 MessageQueue 不在 lockOKMQSet 里说明没有成功上锁，把它对应的 ProcessQueue 设置为无锁状态
                     for (MessageQueue mq : mqs) {
                         if (!lockOKMQSet.contains(mq)) {
                             ProcessQueue processQueue = this.processQueueTable.get(mq);

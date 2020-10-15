@@ -625,7 +625,11 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 break;
         }
     }
-    // 同步操作
+
+    /**
+     * 启动 Consumer
+     * @throws MQClientException
+     */
     public synchronized void start() throws MQClientException {
         switch (this.serviceState) {
             // 刚启动
@@ -635,7 +639,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 this.serviceState = ServiceState.START_FAILED;
                 // 检查配置
                 this.checkConfig();
-                // 复制订阅信息，把主题和对应的订阅信息放入负载均衡实现类的 Map 里。
+                // 复制订阅信息既把主题和对应的订阅信息放入 rebalanceImpl 的 Map 里。
                 this.copySubscription();
                 // 如果是集群模式则把当前消费者的实例名修改为进程ID
                 if (this.defaultMQPushConsumer.getMessageModel() == MessageModel.CLUSTERING) {
@@ -655,7 +659,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                     this.defaultMQPushConsumer.getConsumerGroup(), isUnitMode());
                 // 注册用来过滤消息的钩子程序
                 this.pullAPIWrapper.registerFilterMessageHook(filterMessageHookList);
-                // 获取当前消费者消费消息的偏移量
+                // 获取当前 Consumer 消费消息的 offset
                 if (this.defaultMQPushConsumer.getOffsetStore() != null) {
                     this.offsetStore = this.defaultMQPushConsumer.getOffsetStore();
                 } else {
@@ -678,13 +682,14 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 // 到本地文件加载每个消费队列的消费进度
                 // LocalFileOffsetStore 实现了这个方法，而 RemoteBrokerOffsetStore 的是一个空方法。
                 this.offsetStore.load();
-                // 通过消息监听器来判断是哪种消费模式，如果是有序消费，会回调实现了 MessageListenerOrderly 接口的监听器来执行顺序消费。
+                // 通过消息监听器来判断是哪种消费模式，如果是顺序消费，会回调实现了 MessageListenerOrderly 接口的监听器来执行顺序消费。
                 if (this.getMessageListenerInner() instanceof MessageListenerOrderly) {
                     this.consumeOrderly = true;
                     this.consumeMessageService =
                         new ConsumeMessageOrderlyService(this, (MessageListenerOrderly) this.getMessageListenerInner());
                 }
-                // 否则设置为 ConsumeMessageConcurrentlyService 并发消费，会回调实现了 MessageListenerConcurrently 接口的监听器类并发消费，一次可以最多消费 32 条消息
+                // 否则设置为 ConsumeMessageConcurrentlyService 并发消费，
+                // 会回调实现了 MessageListenerConcurrently 接口的监听器类并发消费，一次可以最多消费 32 条消息
                 else if (this.getMessageListenerInner() instanceof MessageListenerConcurrently) {
                     this.consumeOrderly = false;
                     this.consumeMessageService =
@@ -1235,6 +1240,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
     }
 
     public void resetRetryAndNamespace(final List<MessageExt> msgs, String consumerGroup) {
+        // 如果消息是重试消息
         final String groupTopic = MixAll.getRetryTopic(consumerGroup);
         for (MessageExt msg : msgs) {
             String retryTopic = msg.getProperty(MessageConst.PROPERTY_RETRY_TOPIC);

@@ -52,7 +52,7 @@ public class ProcessQueue {
      */
     private final ReadWriteLock lockTreeMap = new ReentrantReadWriteLock();
     /**
-     * 消息容器,key 是消息在当前 processQueue 的偏移量，value 是消息对象
+     * 消息容器,key 是消息的 offset，value 是消息内容
      */
     private final TreeMap<Long, MessageExt> msgTreeMap = new TreeMap<Long, MessageExt>();
     /**
@@ -307,15 +307,17 @@ public class ProcessQueue {
     }
 
     /**
-     * 将consumingMsgOrderlyTreeMap消息清除,表示成功处理该批消息
-     * @return
+     * 1、更新 ProcessQueue 的总消息数和消息总大小。
+     * 2、将 consumingMsgOrderlyTreeMap 消息清除,表示成功处理该批消息。
+     * 3、返回下一次消费的起始 offset。
      */
     public long commit() {
         try {
             this.lockTreeMap.writeLock().lockInterruptibly();
             try {
+                // consumingMsgOrderlyTreeMap 里最后一个消息的 offset
                 Long offset = this.consumingMsgOrderlyTreeMap.lastKey();
-                // 更新消息总数
+                // 更新消息总数，把原来的总消息数减去已经消费的数量
                 msgCount.addAndGet(0 - this.consumingMsgOrderlyTreeMap.size());
                 // 更新 processQueue 里消息的总大小
                 for (MessageExt msg : this.consumingMsgOrderlyTreeMap.values()) {
@@ -323,7 +325,7 @@ public class ProcessQueue {
                 }
                 // 清空
                 this.consumingMsgOrderlyTreeMap.clear();
-
+                // offset + 1 意思就是设置下一个消息的起始 offset
                 if (offset != null) {
                     return offset + 1;
                 }
@@ -336,12 +338,15 @@ public class ProcessQueue {
 
         return -1;
     }
-    // 重新消费消息
+
+    /**
+     * 重新消费消息
+     */
     public void makeMessageToCosumeAgain(List<MessageExt> msgs) {
         try {
             this.lockTreeMap.writeLock().lockInterruptibly();
             try {
-                // 把要重新消费的消息再次翻入 msgTreeMap 里
+                // 把要重新消费的消息再次放入 msgTreeMap 里
                 for (MessageExt msg : msgs) {
                     this.consumingMsgOrderlyTreeMap.remove(msg.getQueueOffset());
                     this.msgTreeMap.put(msg.getQueueOffset(), msg);
@@ -356,17 +361,18 @@ public class ProcessQueue {
 
     /**
      * 批量获取消息
-     * @param batchSize 一次取出的消息数量
+     * @param batchSize 批量取出的消息数量
      * @return 取出的消息
      */
     public List<MessageExt> takeMessages(final int batchSize) {
         List<MessageExt> result = new ArrayList<MessageExt>(batchSize);
         final long now = System.currentTimeMillis();
         try {
+            // 上写锁
             this.lockTreeMap.writeLock().lockInterruptibly();
             this.lastConsumeTimestamp = now;
             try {
-                // 到 msgTreeMap 里获取指定的消息数，霍如的消息会放入 result 列表里，同时还会放入 consumingMsgOrderlyTreeMap 里
+                // 到 msgTreeMap 里获取指定的消息数，获取到的消息会放入 result 列表里，同时还会放入 consumingMsgOrderlyTreeMap 里
                 if (!this.msgTreeMap.isEmpty()) {
                     for (int i = 0; i < batchSize; i++) {
                         Map.Entry<Long, MessageExt> entry = this.msgTreeMap.pollFirstEntry();
@@ -378,11 +384,12 @@ public class ProcessQueue {
                         }
                     }
                 }
-
+                // 就不继续消费了
                 if (result.isEmpty()) {
                     consuming = false;
                 }
             } finally {
+                // 释放写锁
                 this.lockTreeMap.writeLock().unlock();
             }
         } catch (InterruptedException e) {

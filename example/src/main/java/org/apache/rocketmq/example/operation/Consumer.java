@@ -31,6 +31,9 @@ import org.apache.rocketmq.client.consumer.listener.MessageListenerConcurrently;
 import org.apache.rocketmq.client.exception.MQClientException;
 import org.apache.rocketmq.common.message.MessageExt;
 
+/**
+ * Consumer 的顺序消费
+ */
 public class Consumer {
 
     public static void main(String[] args) throws InterruptedException, MQClientException {
@@ -62,7 +65,6 @@ public class Consumer {
                     return ConsumeConcurrentlyStatus.CONSUME_SUCCESS;
                 }
             });
-
             consumer.start();
 
             System.out.printf("Consumer Started.%n");
