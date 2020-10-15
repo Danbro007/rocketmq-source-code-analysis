@@ -130,6 +130,9 @@ public class BrokerController {
     private final ProducerManager producerManager;
     private final ClientHousekeepingService clientHousekeepingService;
     private final PullMessageProcessor pullMessageProcessor;
+    /**
+     * 轮询服务
+     */
     private final PullRequestHoldService pullRequestHoldService;
     private final MessageArrivingListener messageArrivingListener;
     private final Broker2Client broker2Client;

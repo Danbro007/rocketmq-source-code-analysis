@@ -30,13 +30,20 @@ import org.apache.rocketmq.logging.InternalLoggerFactory;
 import org.apache.rocketmq.store.ConsumeQueueExt;
 
 /**
- * 对于PushConsumer，当读取的时候没有发现消息，该类会暂时hold住请求，当有新的消息到达的时候，再回复请求。
+ *
+ * 执行轮询的服务
+ *
+ * 对于 PushConsumer，当读取的时候没有发现消息，该类会暂时hold住请求，当有新的消息到达的时候，再回复请求。
+ *
  */
 public class PullRequestHoldService extends ServiceThread {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private static final String TOPIC_QUEUEID_SEPARATOR = "@";
     private final BrokerController brokerController;
     private final SystemClock systemClock = new SystemClock();
+    /**
+     * 需要被轮询执行 pullRequest
+     */
     private ConcurrentMap<String/* topic@queueId */, ManyPullRequest> pullRequestTable =
         new ConcurrentHashMap<String, ManyPullRequest>(1024);
 
@@ -45,12 +52,10 @@ public class PullRequestHoldService extends ServiceThread {
     }
 
     /**
-     * 将拉取请求放入 ManyPullRequest 中
-     * @param topic
-     * @param queueId
-     * @param pullRequest
+     * 将需要轮询的 pullRequest 按照 ConsumeQueue 分类放入 pullRequestTable 中，之后会从 pullRequestTable 取 pullRequest 任务并拉取
      */
     public void suspendPullRequest(final String topic, final int queueId, final PullRequest pullRequest) {
+        // 构建 pullRequestTable 的 key
         String key = this.buildKey(topic, queueId);
         ManyPullRequest mpr = this.pullRequestTable.get(key);
         if (null == mpr) {
@@ -113,7 +118,7 @@ public class PullRequestHoldService extends ServiceThread {
             if (2 == kArray.length) {
                 String topic = kArray[0];
                 int queueId = Integer.parseInt(kArray[1]);
-                // 获取 ConsumeQueue 的最大消息偏移量
+                // 到 CommitLog 里查询 ConsumeQueue 里消息的最大 offset
                 final long offset = this.brokerController.getMessageStore().getMaxOffsetInQueue(topic, queueId);
                 try {
                     // 检查消息是否到达
@@ -125,46 +130,47 @@ public class PullRequestHoldService extends ServiceThread {
         }
     }
 
+    /**
+     * 通知消息到达
+     */
     public void notifyMessageArriving(final String topic, final int queueId, final long maxOffset) {
         notifyMessageArriving(topic, queueId, maxOffset, null, 0, null, null);
     }
 
     /**
      * 当有消息到达时会唤醒 PullMessageProcessor 来处理拉取请求，如果轮询超时了也会唤醒 PullMessageProcessor。
-     * @param topic
-     * @param queueId
-     * @param maxOffset
-     * @param tagsCode
-     * @param msgStoreTime
-     * @param filterBitMap
-     * @param properties
      */
     public void notifyMessageArriving(final String topic, final int queueId, final long maxOffset, final Long tagsCode,
         long msgStoreTime, byte[] filterBitMap, Map<String, String> properties) {
+        // 构建 key
         String key = this.buildKey(topic, queueId);
-        // 获得主题和消费 Id 对应的拉取请求
+        // 获取 ConsumeQueue 对应的请求
         ManyPullRequest mpr = this.pullRequestTable.get(key);
         if (mpr != null) {
+            // 复制出 pullRequest 列表
             List<PullRequest> requestList = mpr.cloneListAndClear();
             if (requestList != null) {
                 List<PullRequest> replayList = new ArrayList<PullRequest>();
                 // 遍历每个拉取请求
                 for (PullRequest request : requestList) {
+                    // 最新的 offset
                     long newestOffset = maxOffset;
+                    // 如果这个最新的 offset 还 <= pullRequest 要拉取消息的 offset
                     if (newestOffset <= request.getPullFromThisOffset()) {
-                        // 最新的消息偏移量
+                        // 重新到 CommitLog 获取 ConsumeQueue 最大的 offset
                         newestOffset = this.brokerController.getMessageStore().getMaxOffsetInQueue(topic, queueId);
                     }
-                    // 如果最新消息的偏移量大于请求的偏移量说明有新的消息,如果消息匹配调用 executeRequestWhenWakeup处理消息。
+                    // 如果最新的 offset 大于 pullRequest 的 offset 说明有新的消息到达,
+                    // 先用消息过滤器看看消息是否匹配，如果匹配则调用 executeRequestWhenWakeup 处理消息。
                     if (newestOffset > request.getPullFromThisOffset()) {
                         boolean match = request.getMessageFilter().isMatchedByConsumeQueue(tagsCode,
                             new ConsumeQueueExt.CqExtUnit(tagsCode, msgStoreTime, filterBitMap));
                         // match by bit map, need eval again when properties is not null.
-                        // 通过位图来匹配的，当属性为不空则会需要再次匹配
+                        // 通过位图来匹配的（布隆过滤器），当属性为不空则会需要再次匹配
                         if (match && properties != null) {
                             match = request.getMessageFilter().isMatchedByCommitLog(null, properties);
                         }
-                        // 找到想要的消息唤醒 PullMessageProcessor
+                        // 消息真正到达了立马唤醒 PullMessageProcessor 把获取的消息发回给 Consumer
                         if (match) {
                             try {
                                 this.brokerController.getPullMessageProcessor().executeRequestWhenWakeup(request.getClientChannel(),

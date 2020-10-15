@@ -22,7 +22,9 @@ import org.apache.rocketmq.common.MixAll;
 public class SubscriptionGroupConfig {
 
     private String groupName;
-
+    /**
+     * ConsumerGroup 能够消费消息
+     */
     private boolean consumeEnable = true;
     private boolean consumeFromMinEnable = true;
 
