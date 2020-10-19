@@ -266,6 +266,13 @@ public class MQClientAPIImpl {
 
     }
 
+    /**
+     * 向 Broker 创建 topic
+     * @param addr Broker 地址
+     * @param defaultTopic 默认的 topic，每个 Broker 都有这个 topic
+     * @param topicConfig topic 配置
+     * @param timeoutMillis 超时时间
+     */
     public void createTopic(final String addr, final String defaultTopic, final TopicConfig topicConfig,
         final long timeoutMillis)
         throws RemotingException, MQBrokerException, InterruptedException, MQClientException {
@@ -281,9 +288,9 @@ public class MQClientAPIImpl {
         requestHeader.setTopicFilterType(topicConfig.getTopicFilterType().name());
         requestHeader.setTopicSysFlag(topicConfig.getTopicSysFlag());
         requestHeader.setOrder(topicConfig.isOrder());
-
+        // 创建请求
         RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.UPDATE_AND_CREATE_TOPIC, requestHeader);
-
+        // 向 Broker 发送请求
         RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr),
             request, timeoutMillis);
         assert response != null;

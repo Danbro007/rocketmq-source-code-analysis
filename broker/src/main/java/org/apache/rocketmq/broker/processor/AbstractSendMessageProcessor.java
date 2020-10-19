@@ -163,8 +163,12 @@ public abstract class AbstractSendMessageProcessor extends AsyncNettyRequestProc
         return response;
     }
 
+    /**
+     * 检查 topic 和 queue，如果不存在且 broker 设置中允许自动创建，则自动创建 topic。
+     */
     protected RemotingCommand msgCheck(final ChannelHandlerContext ctx,
         final SendMessageRequestHeader requestHeader, final RemotingCommand response) {
+        // Broker 不支持写入 && 顺序 topic 则直接返回 NO_PERMISSION 。
         if (!PermName.isWriteable(this.brokerController.getBrokerConfig().getBrokerPermission())
             && this.brokerController.getTopicConfigManager().isOrderTopic(requestHeader.getTopic())) {
             response.setCode(ResponseCode.NO_PERMISSION);
@@ -172,14 +176,15 @@ public abstract class AbstractSendMessageProcessor extends AsyncNettyRequestProc
                 + "] sending message is forbidden");
             return response;
         }
-
+        // 校验 topic
         if (!TopicValidator.validateTopic(requestHeader.getTopic(), response)) {
             return response;
         }
+        // 不允许发送当前 topic 的消息
         if (TopicValidator.isNotAllowedSendTopic(requestHeader.getTopic(), response)) {
             return response;
         }
-
+        // 到 Broker 查询 topic 信息，如果查不到则自己创建一个。
         TopicConfig topicConfig =
             this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
         if (null == topicConfig) {
@@ -193,12 +198,13 @@ public abstract class AbstractSendMessageProcessor extends AsyncNettyRequestProc
             }
             // topic 不存在
             log.warn("the topic {} not exist, producer: {}", requestHeader.getTopic(), ctx.channel().remoteAddress());
+            // 自动创建一个
             topicConfig = this.brokerController.getTopicConfigManager().createTopicInSendMessageMethod(
                 requestHeader.getTopic(),
                 requestHeader.getDefaultTopic(),
                 RemotingHelper.parseChannelRemoteAddr(ctx.channel()),
                 requestHeader.getDefaultTopicQueueNums(), topicSysFlag);
-
+            // 自动创建失败则 Broker 找 %RETRY% 开头的 topic
             if (null == topicConfig) {
                 if (requestHeader.getTopic().startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
                     topicConfig =
@@ -207,7 +213,7 @@ public abstract class AbstractSendMessageProcessor extends AsyncNettyRequestProc
                             topicSysFlag);
                 }
             }
-
+            // 还是不行则返回 TOPIC_NOT_EXIST 的状态码
             if (null == topicConfig) {
                 response.setCode(ResponseCode.TOPIC_NOT_EXIST);
                 response.setRemark("topic[" + requestHeader.getTopic() + "] not exist, apply first please!"
@@ -215,7 +221,7 @@ public abstract class AbstractSendMessageProcessor extends AsyncNettyRequestProc
                 return response;
             }
         }
-
+        // Topic 有了
         int queueIdInt = requestHeader.getQueueId();
         int idValid = Math.max(topicConfig.getWriteQueueNums(), topicConfig.getReadQueueNums());
         if (queueIdInt >= idValid) {

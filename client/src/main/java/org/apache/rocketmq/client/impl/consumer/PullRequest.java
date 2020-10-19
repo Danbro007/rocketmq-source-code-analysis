@@ -29,7 +29,7 @@ public class PullRequest {
      */
     private ProcessQueue processQueue;
     /**
-     * 当前拉请求将要拉取的消息偏移量
+     * 当前PullRequest将要拉取的消息偏移量
      */
     private long nextOffset;
     /**

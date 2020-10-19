@@ -186,12 +186,13 @@ public class IndexService {
 
         long indexLastUpdateTimestamp = 0;
         long indexLastUpdatePhyoffset = 0;
+        // 最大查询数
         maxNum = Math.min(maxNum, this.defaultMessageStore.getMessageStoreConfig().getMaxMsgsNumBatch());
         try {
             // 对 IndexFile 的读锁上锁
             this.readWriteLock.readLock().lock();
             if (!this.indexFileList.isEmpty()) {
-                // 从 IndexFile 列表的尾部往前遍历
+                // 1、从 IndexFile 文件列表的尾部往前遍历
                 for (int i = this.indexFileList.size(); i > 0; i--) {
                     IndexFile f = this.indexFileList.get(i - 1);
                     boolean lastFile = i == this.indexFileList.size();
@@ -200,9 +201,9 @@ public class IndexService {
                         indexLastUpdateTimestamp = f.getEndTimestamp();
                         indexLastUpdatePhyoffset = f.getEndPhyOffset();
                     }
-                    // 读取 IndexFile 的 header 的 最大时间和最小时间，查看时间是否匹配>
+                    // 2、读取 IndexFile 的 header 的 最大时间和最小时间，查看时间是否匹配
                     if (f.isTimeMatched(begin, end)) {
-                        // 从文件中读取 index 中的 offset
+                        // 3、从文件中读取 index 中的 offset
                         f.selectPhyOffset(phyOffsets, buildKey(topic, key), maxNum, begin, end, lastFile);
                     }
 
@@ -227,17 +228,20 @@ public class IndexService {
         return topic + "#" + key;
     }
 
+    /**
+     * 构建索引
+     */
     public void buildIndex(DispatchRequest req) {
-        // 尝试获取 IndexFile ，如果没有则自己创建一个。
+        // 1、尝试获取 IndexFile ，如果没有则自己创建一个。
         IndexFile indexFile = retryGetAndCreateIndexFile();
         if (indexFile != null) {
-            // IndexFile 文件的最大物理偏移量
+            // 2、IndexFile 文件的最大物理 offset
             long endPhyOffset = indexFile.getEndPhyOffset();
             DispatchRequest msg = req;
             String topic = msg.getTopic();
             String keys = msg.getKeys();
-            //如果该消息在 CommitLog 的 offset 小于 IndexFile 中的消息的最大物理 offset,则说明是重复数据之前已经存储过,忽略本次索引构建。
-            // 因为正常来说，CommitLog 的 offset 是比 IndexFile 的 maxOffset 大的，出现小于的是不正常情况。
+            // 3、如果该消息在 CommitLog 的 offset 小于当前 IndexFile 中的消息的最大物理 offset,则说明是重复数据之前已经存储过,忽略本次索引构建。
+            // 因为正常来说，CommitLog 的 offset 是比 IndexFile 的 endPhyOffset 大的，出现小于的是不正常情况。
             if (msg.getCommitLogOffset() < endPhyOffset) {
                 return;
             }
@@ -251,7 +255,7 @@ public class IndexService {
                 case MessageSysFlag.TRANSACTION_ROLLBACK_TYPE:
                     return;
             }
-            // 单个消息存入
+            // 4、单个消息存入
             if (req.getUniqKey() != null) {
                 // 计算出消息的 MsgKey 放到 indexFile 的槽位，然后把数据放到 IndexFile 的 mappedByteBuffer 里并返回 IndexFile
                 indexFile = putKey(indexFile, msg, buildKey(topic, req.getUniqKey()));
@@ -260,9 +264,9 @@ public class IndexService {
                     return;
                 }
             }
-            // 多个消息则逐个存入 IndexFile
+            // 5、多个消息则逐个存入 IndexFile
             if (keys != null && keys.length() > 0) {
-                // 分割多个出 key
+                // 分割多个出 MessageKey
                 String[] keyset = keys.split(MessageConst.KEY_SEPARATOR);
                 // 遍历这些 key 数组
                 for (int i = 0; i < keyset.length; i++) {
@@ -282,8 +286,7 @@ public class IndexService {
     }
 
     /**
-     * 对消息的 MsgKey 取模找到存储在 IndexFile 的槽位，然后把这些数据放入 缓冲区 mappedByteBuffer 里，
-     * @return
+     * 对消息的 MsgKey 取模找到存储在 IndexFile 的 slot，然后把这些数据放入缓冲区 mappedByteBuffer 里，
      */
     private IndexFile putKey(IndexFile indexFile, DispatchRequest msg, String idxKey) {
         for (boolean ok = indexFile.putKey(idxKey, msg.getCommitLogOffset(), msg.getStoreTimestamp()); !ok; ) {

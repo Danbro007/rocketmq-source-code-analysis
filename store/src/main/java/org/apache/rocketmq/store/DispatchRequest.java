@@ -22,35 +22,65 @@ import java.util.Map;
  * 把消息封装成 DispatchRequest 对象
  */
 public class DispatchRequest {
-    // 消息主题
+    /**
+     * 消息主题
+     */
     private final String topic;
-    // 消息队列 ID
+    /**
+     * ConsumeQueue ID
+     */
     private final int queueId;
-    // 消息物理偏移量
+    /**
+     * 消息在 CommitLog 的 offset
+     */
     private final long commitLogOffset;
-    // 消息大小
+    /**
+     * 消息大小
+     */
     private int msgSize;
-    //用于消息过滤tag hashCode
+    /**
+     * 消息tag 的 hashCode
+     */
     private final long tagsCode;
-    // 消息存储时间戳
+    /**
+     * 消息存储时间戳
+     */
     private final long storeTimestamp;
-    // 消费队列偏移量
+    /**
+     * 当前消息在 ConsumeQueue 的物理 offset
+     */
     private final long consumeQueueOffset;
-    // 消息索引 key ，多个消息
+    /**
+     * 消息索引 key ，多个消息
+     */
     private final String keys;
-    // 是否成功解析到完整的消息
+    /**
+     * 是否成功解析到完整的消息
+     */
     private final boolean success;
-    // 消息唯一键，单个消息
+    /**
+     * 消息唯一键，单个消息
+     */
     private final String uniqKey;
-    // 消息系统标记
+    /**
+     * 消息系统标记
+     */
     private final int sysFlag;
-    //消息预处理事务偏移量
+    /**
+     * 消息预处理事务偏移量
+     */
     private final long preparedTransactionOffset;
-    // 消息属性 Map
+    /**
+     * 存储消息属性的 Map
+     */
     private final Map<String, String> propertiesMap;
-    // 位图
+    /**
+     * 通过 Tag 来过滤消息的布隆过滤器
+     */
     private byte[] bitMap;
-
+    /**
+     * ByteBuffer 大小
+     */
     private int bufferSize = -1;//the buffer size maybe larger than the msg size if the message is wrapped by something
 
     public DispatchRequest(

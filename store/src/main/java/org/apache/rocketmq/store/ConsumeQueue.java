@@ -388,19 +388,20 @@ public class ConsumeQueue {
      * @param request 消息分发请求
      */
     public void putMessagePositionInfoWrapper(DispatchRequest request) {
-        // 最大重试次数
+        // 1、最大重试次数
         final int maxRetries = 30;
-        // ConsumeQueue 是否支持写入
+        // 2、ConsumeQueue 是否支持写入
         boolean canWrite = this.defaultMessageStore.getRunningFlags().isCQWriteable();
         for (int i = 0; i < maxRetries && canWrite; i++) {
             // tag 的 hashCode
             long tagsCode = request.getTagsCode();
             // 是否支持 consumeQueueExt
             if (isExtWriteEnable()) {
+                //3、如果需要写ext文件，则将消息的tagscode写入
                 // 存储着 ConsumeQueue 的存储单元
                 ConsumeQueueExt.CqExtUnit cqExtUnit = new ConsumeQueueExt.CqExtUnit();
                 // 对存储单元进行设置
-                // 这里的 bitMap 其实就是布隆过滤器，来实现过滤功能。
+                // 这里的 bitMap 其实就是布隆过滤器，来实现对 tag 的过滤功能。
                 cqExtUnit.setFilterBitMap(request.getBitMap());
                 // 记录存储时间
                 cqExtUnit.setMsgStoreTime(request.getStoreTimestamp());
@@ -416,7 +417,7 @@ public class ConsumeQueue {
                         topic, queueId, request.getCommitLogOffset());
                 }
             }
-            // 在 ConsumeQueue 里存储消息
+            // 4、在 ConsumeQueue 里写入消息
             boolean result = this.putMessagePositionInfo(request.getCommitLogOffset(),
                 request.getMsgSize(), tagsCode, request.getConsumeQueueOffset());
             // 写入成功
@@ -426,6 +427,7 @@ public class ConsumeQueue {
                     this.defaultMessageStore.getMessageStoreConfig().isEnableDLegerCommitLog()) {
                     this.defaultMessageStore.getStoreCheckpoint().setPhysicMsgTimestamp(request.getStoreTimestamp());
                 }
+                // 5、记录检查点
                 this.defaultMessageStore.getStoreCheckpoint().setLogicsMsgTimestamp(request.getStoreTimestamp());
                 return;
             } else {
@@ -448,27 +450,32 @@ public class ConsumeQueue {
 
     /**
      * 存储消息到磁盘 ，ConsumeQueue 里也是用 MappedFile 存储的。其实就是把 CqExtUnit 对象写入到文件中。
+     * @param offset CommitLog 已提交 offset
+     * @param size 要写入的消息大小
+     * @param tagsCode tag 的 hashCode
+     * @param cqOffset 消息在 ConsumeQueue 的 offset，一个 CqUnit 为 1 个 offset。
+     * @return
      */
     private boolean putMessagePositionInfo(final long offset, final int size, final long tagsCode,
         final long cqOffset) {
-        // 第一次不会进入这里，maxPhysicOffset 初始化的时候为 - 1，后面会更新。
+        // CommitLog 已提交消息的 offset + 消息大小如果还小于 ConsumeQueue 的最大 offset，说明 ConsumeQueue 的容量不够了要新建。
         if (offset + size <= this.maxPhysicOffset) {
             log.warn("Maybe try to build consume queue repeatedly maxPhysicOffset={} phyOffset={}", maxPhysicOffset, offset);
             return true;
         }
-        // 重置缓冲区，大小为一个 CQUnit 的大小 20 字节
-        // 其中这里面 offset 占8个字节，消息 size 占用4个字节，tagcode 占用8个字节
+        // 重置 ByteBuffer，大小为一个 CQUnit 的大小 20 字节
+        // 其中这里面 offset 占8个字节，消息 size 占用4个字节，tagCode 占用8个字节
         this.byteBufferIndex.flip();
         this.byteBufferIndex.limit(CQ_STORE_UNIT_SIZE);
         this.byteBufferIndex.putLong(offset);
         this.byteBufferIndex.putInt(size);
         this.byteBufferIndex.putLong(tagsCode);
-        // 存储后的指针位置
+        // 预估 ConsumeQueue 的写 offset，意思是需要读取几个 CqUnit 找到位置，一个 CqUnit 为 20 Byte
         final long expectLogicOffset = cqOffset * CQ_STORE_UNIT_SIZE;
         // 获取最新的 MappedFile
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile(expectLogicOffset);
         if (mappedFile != null) {
-            // 对新创建的文件，写将所有 CQUnit 初始化0值
+            // 对新创建的文件，先将所有 CQUnit 初始化0值
             if (mappedFile.isFirstCreateInQueue() && cqOffset != 0 && mappedFile.getWrotePosition() == 0) {
                 this.minLogicOffset = expectLogicOffset;
                 this.mappedFileQueue.setFlushedWhere(expectLogicOffset);

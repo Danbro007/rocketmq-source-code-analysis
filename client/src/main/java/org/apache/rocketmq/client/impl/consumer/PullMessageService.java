@@ -30,7 +30,7 @@ import org.apache.rocketmq.common.utils.ThreadUtils;
 public class PullMessageService extends ServiceThread {
     private final InternalLogger log = ClientLogger.getLog();
     /**
-     * PullMessageService 每次都是到这里获取拉请求
+     * PullMessageService 每次都是到这里获取PullRequest
      */
     private final LinkedBlockingQueue<PullRequest> pullRequestQueue = new LinkedBlockingQueue<PullRequest>();
     private final MQClientInstance mQClientFactory;
@@ -81,7 +81,6 @@ public class PullMessageService extends ServiceThread {
 
     /**
      * 拉取消息
-     * @param pullRequest 拉请求
      */
     private void pullMessage(final PullRequest pullRequest) {
         // 先通过消费组名找到消费者
@@ -105,7 +104,7 @@ public class PullMessageService extends ServiceThread {
         // 循环一直执行
         while (!this.isStopped()) {
             try {
-                // 先到 pullRequestQueue 队列里获取一个拉请求
+                // 先到 pullRequestQueue 队列里获取一个PullRequest
                 PullRequest pullRequest = this.pullRequestQueue.take();
                 // 执行到 Broker 拉取消息
                 this.pullMessage(pullRequest);

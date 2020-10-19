@@ -258,6 +258,9 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor implements 
         return false;
     }
 
+    /**
+     * 更新或添加 topic，并把新的 topicConfig 同步到 NameServer 。
+     */
     private synchronized RemotingCommand updateAndCreateTopic(ChannelHandlerContext ctx,
         RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
@@ -273,16 +276,16 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor implements 
         if (TopicValidator.isSystemTopic(topic, response)) {
             return response;
         }
-
+        // 把接收到请求参数放入 topicConfig 里
         TopicConfig topicConfig = new TopicConfig(topic);
         topicConfig.setReadQueueNums(requestHeader.getReadQueueNums());
         topicConfig.setWriteQueueNums(requestHeader.getWriteQueueNums());
         topicConfig.setTopicFilterType(requestHeader.getTopicFilterTypeEnum());
         topicConfig.setPerm(requestHeader.getPerm());
         topicConfig.setTopicSysFlag(requestHeader.getTopicSysFlag() == null ? 0 : requestHeader.getTopicSysFlag());
-        // 更新 topic 配置
+        // 更新或添加 topic 配置
         this.brokerController.getTopicConfigManager().updateTopicConfig(topicConfig);
-        // 同步方法
+        // broker 将 topic 信息同步到 NameServer
         this.brokerController.registerIncrementBrokerData(topicConfig, this.brokerController.getTopicConfigManager().getDataVersion());
 
         response.setCode(ResponseCode.SUCCESS);

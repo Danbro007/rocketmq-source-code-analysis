@@ -49,13 +49,13 @@ public class MappedFile extends ReferenceResource {
     private static final AtomicLong TOTAL_MAPPED_VIRTUAL_MEMORY = new AtomicLong(0);
     // 当前 JVM 实例中 MappedFile 的个数
     private static final AtomicInteger TOTAL_MAPPED_FILES = new AtomicInteger(0);
-    // 当前映射文件的写指针
+    // 当前 MappedFile 的写指针
     protected final AtomicInteger wrotePosition = new AtomicInteger(0);
-    // 当前映射文件的提交指针
+    // 当前 MappedFile 的提交指针
     protected final AtomicInteger committedPosition = new AtomicInteger(0);
-    // 当前映射文件的刷盘指针
+    // 当前 MappedFile 的刷盘指针
     private final AtomicInteger flushedPosition = new AtomicInteger(0);
-    // 每个映射文件的大小
+    // 每个 MappedFile 的大小
     protected int fileSize;
     // 文件通道
     protected FileChannel fileChannel;
@@ -72,11 +72,11 @@ public class MappedFile extends ReferenceResource {
     protected TransientStorePool transientStorePool = null;
     // MappedFile 文件名
     private String fileName;
-    // 当前映射文件的处理偏移量
+    // 当前 MappedFile 的处理偏移量
     private long fileFromOffset;
-    // 映射文件对象
+    //  MappedFile 对象
     private File file;
-    // 物理映射文件对应的内存映射缓冲区
+    // 物理 MappedFile 对应的内存映射缓冲区
     private MappedByteBuffer mappedByteBuffer;
     // 文件最后一次内容写入时间
     private volatile long storeTimestamp = 0;
@@ -222,31 +222,31 @@ public class MappedFile extends ReferenceResource {
     }
 
     /**
-     * 存储消息到映射文件里
+     * 存储消息到 MappedFile 里
      * @param messageExt 要存储的消息
-     * @param cb 存储消息后要执行的回调函数
+     * @param cb 存储消息的回调函数
      * @return 存储结果
      */
     public AppendMessageResult appendMessagesInner(final MessageExt messageExt, final AppendMessageCallback cb) {
         assert messageExt != null;
         assert cb != null;
-        // 当前映射文件的写指针
+        // 1、当前 MappedFile 的写指针位置
         int currentPos = this.wrotePosition.get();
-        // 如果写指针大于映射文件大小既 1024 MB 则说明文件已经满了，因为之前我们已经判断过映射文件是否已满
+        // 如果写指针大于 MappedFile 大小既 1024 MB 则说明文件已经满了，因为之前我们已经判断过 MappedFile 是否已满
         // 如果这里还出现文件已满那只能返回 UNKNOWN_ERROR 结果
         if (currentPos < this.fileSize) {
-            // 如果开启了 transientStorePoolEnable 则会使用 writeBuffer ，否则是使用 mappedByteBuffer 开辟一个缓冲区。
+            // 2、如果开启了 transientStorePoolEnable 内存池功能则会使用 writeBuffer ，否则是使用 mappedByteBuffer 开辟一个缓冲区。
             ByteBuffer byteBuffer = writeBuffer != null ? writeBuffer.slice() : this.mappedByteBuffer.slice();
             // 在 ByteBuffer 里标记要写入的位置
             byteBuffer.position(currentPos);
             AppendMessageResult result;
             // 写入单条消息
             if (messageExt instanceof MessageExtBrokerInner) {
-                // 执行回调函数，它的作用是把消息序列化并写入到缓冲区里最后返回写入结果
+                // 3、执行回调函数，把消息序列化并写入到 ByteBuffer 里最后返回写入结果
                 result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos, (MessageExtBrokerInner) messageExt);
             }
-            // 写入多条消息
             else if (messageExt instanceof MessageExtBatch) {
+                // 3、写入多条消息
                 result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos, (MessageExtBatch) messageExt);
             } else {
                 return new AppendMessageResult(AppendMessageStatus.UNKNOWN_ERROR);
@@ -422,7 +422,7 @@ public class MappedFile extends ReferenceResource {
     private boolean isAbleToFlush(final int flushLeastPages) {
         int flush = this.flushedPosition.get();
         int write = getReadPosition();
-        // 映射文件是否已满
+        //  MappedFile 是否已满
         if (this.isFull()) {
             return true;
         }

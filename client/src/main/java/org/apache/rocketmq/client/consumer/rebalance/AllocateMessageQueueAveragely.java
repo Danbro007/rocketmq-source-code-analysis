@@ -36,11 +36,6 @@ public class AllocateMessageQueueAveragely implements AllocateMessageQueueStrate
      *
      * 执行分配方法
      *
-     * @param consumerGroup current consumer group
-     * @param currentCID current consumer id
-     * @param mqAll message queue set in current topic
-     * @param cidAll consumer set in current consumer group
-     * @return
      */
     @Override
     public List<MessageQueue> allocate(String consumerGroup, String currentCID, List<MessageQueue> mqAll,

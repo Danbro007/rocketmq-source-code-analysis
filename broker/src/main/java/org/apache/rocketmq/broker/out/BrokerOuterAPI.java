@@ -146,7 +146,7 @@ public class BrokerOuterAPI {
             requestHeader.setBodyCrc32(bodyCrc32);
             // 计数器
             final CountDownLatch countDownLatch = new CountDownLatch(nameServerAddressList.size());
-            // 遍历所有的 nameserver 注册
+            // 遍历所有的 nameserver 注册新的 Broker 配置
             for (final String namesrvAddr : nameServerAddressList) {
                 brokerOuterExecutor.execute(new Runnable() {
                     @Override

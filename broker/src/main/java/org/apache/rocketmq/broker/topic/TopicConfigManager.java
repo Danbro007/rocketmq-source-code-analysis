@@ -357,7 +357,7 @@ public class TopicConfigManager extends ConfigManager {
     }
 
     /**
-     * 更新 Topic 的配置，更新完毕后会对数据版本进行更新。
+     * 更新 Topic 的配置，更新完毕后会对数据版本进行更新。并持久化到本地磁盘中。
      * @param topicConfig Topic 的配置
      */
     public void updateTopicConfig(final TopicConfig topicConfig) {
@@ -369,7 +369,7 @@ public class TopicConfigManager extends ConfigManager {
         }
 
         this.dataVersion.nextVersion();
-
+        // 持久化
         this.persist();
     }
 

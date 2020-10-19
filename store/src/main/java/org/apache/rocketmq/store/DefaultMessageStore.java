@@ -83,7 +83,7 @@ public class DefaultMessageStore implements MessageStore {
     private final AllocateMappedFileService allocateMappedFileService;
     //CommitLog消息分发,根据CommitLog文件构建ConsumerQueue、IndexFile文件
     private final ReputMessageService reputMessageService;
-    // 高可用实现类
+    // 主从同步服务类
     private final HAService haService;
     // 消息调度实现类
     private final ScheduleMessageService scheduleMessageService;
@@ -233,7 +233,7 @@ public class DefaultMessageStore implements MessageStore {
      *
      */
     public void start() throws Exception {
-        // 先对 lock 文件上锁，如果上锁失败 or 锁是共享锁就判断 MessageStore 已经启动了，这样是为了保证只有一个 MessageStore 运行。
+        // 1、先对 lock 文件上锁，如果上锁失败 or 锁是共享锁就判断 MessageStore 已经启动了，这样是为了保证只有一个 MessageStore 运行。
         lock = lockFile.getChannel().tryLock(0, 1, false);
         if (lock == null || lock.isShared() || !lock.isValid()) {
             throw new RuntimeException("Lock failed,MQ already started");
@@ -276,7 +276,7 @@ public class DefaultMessageStore implements MessageStore {
                 maxPhysicalPosInLogicQueue, this.commitLog.getMinOffset(), this.commitLog.getMaxOffset(), this.commitLog.getConfirmOffset());
             //设置转发服务的消息起始偏移量
             this.reputMessageService.setReputFromOffset(maxPhysicalPosInLogicQueue);
-            // 另起一个线程开启消息转发服务，转发到 IndexFile 和 ConsumeQueue
+            // 2、另起一个线程开启消息转发服务，转发到 IndexFile 和 ConsumeQueue
             this.reputMessageService.start();
 
             /**
@@ -292,20 +292,21 @@ public class DefaultMessageStore implements MessageStore {
             }
             this.recoverTopicQueueTable();
         }
-        // 开启主从数据同步服务
+        // 3、开启主从数据同步服务
         if (!messageStoreConfig.isEnableDLegerCommitLog()) {
             this.haService.start();
+            // 4、针对master，启动延时消息调度服务
             this.handleScheduleMessageService(messageStoreConfig.getBrokerRole());
         }
-        // 定期把 ConsumeQueue 刷新到磁盘中
+        // 5、定期把 ConsumeQueue 刷新到磁盘中
         this.flushConsumeQueueService.start();
-        // 开启定期刷盘操作，把 Broker 内存中的消息定期刷新到磁盘中
+        // 6、开启定期刷盘操作，把 Broker 内存中的消息定期刷新到磁盘中
         this.commitLog.start();
-        // 定期打印存储状况的日志
+        // 7、定期打印存储状况的日志
         this.storeStatsService.start();
-        // 创建一个临时文件
+        // 8、对于新的broker，初始化文件存储的目录
         this.createTempFile();
-        // 开启几个定时任务
+        // 9、开启几个定时任务
         this.addScheduleTask();
         this.shutdown = false;
     }
@@ -422,7 +423,7 @@ public class DefaultMessageStore implements MessageStore {
             }
             return PutMessageStatus.SERVICE_NOT_AVAILABLE;
         }
-        // 如果消息存储器是正在写入状态则返回 SERVICE_NOT_AVAILABLE 状态
+        // 如果消息存储器是可写入状态则返回 SERVICE_NOT_AVAILABLE 状态
         if (!this.runningFlags.isWriteable()) {
             long value = this.printTimes.getAndIncrement();
             if ((value % 50000) == 0) {
@@ -501,14 +502,12 @@ public class DefaultMessageStore implements MessageStore {
 
     /**
      * 存储单个消息
-     * @param msg Message instance to store
-     * @return 存储结果
      */
     @Override
     public PutMessageResult putMessage(MessageExtBrokerInner msg) {
-        // 返回消息存储器的状态
+        // 返回 MessageStore 的状态
         PutMessageStatus checkStoreStatus = this.checkStoreStatus();
-        // 如果存储器不是 PUT_OK 状态则把返回的状态封装成 PutMessageResult 对象并返回
+        // 如果 MessageStore 不是 PUT_OK 状态则把返回的状态封装成 PutMessageResult 对象并返回
         if (checkStoreStatus != PutMessageStatus.PUT_OK) {
             return new PutMessageResult(checkStoreStatus, null);
         }
@@ -537,7 +536,12 @@ public class DefaultMessageStore implements MessageStore {
 
         return result;
     }
-    //批量存储消息
+
+    /**
+     * 批量存储消息
+     * @param messageExtBatch Message batch.
+     * @return
+     */
     @Override
     public PutMessageResult putMessages(MessageExtBatch messageExtBatch) {
         PutMessageStatus checkStoreStatus = this.checkStoreStatus();
@@ -1017,7 +1021,7 @@ public class DefaultMessageStore implements MessageStore {
         long lastQueryMsgTime = end;
 
         for (int i = 0; i < 3; i++) {
-            //先通过 MessageKey 到 IndexFile 查询消息在 CommitLog 的 offset
+            // 1、先通过 MessageKey 到 IndexFile 查询消息在 CommitLog 的 offset
             // 在 IndexFile 中是以 topic#MessageKey 的格式构建索引的
             QueryOffsetResult queryOffsetResult = this.indexService.queryOffset(topic, key, maxNum, begin, lastQueryMsgTime);
             if (queryOffsetResult.getPhyOffsets().isEmpty()) {
@@ -1052,7 +1056,7 @@ public class DefaultMessageStore implements MessageStore {
 //                            }
 //                        }
 //                    }
-                    // 找到了则获取 SelectMappedBufferResult 对象，里面有查询的消息所在的 MappedFile 等信息。
+                    // 2、找到了则获取 SelectMappedBufferResult 对象，里面有查询的消息所在的 MappedFile 等信息。
                     if (match) {
                         SelectMappedBufferResult result = this.commitLog.getData(offset, false);
                         if (result != null) {
@@ -1382,7 +1386,10 @@ public class DefaultMessageStore implements MessageStore {
         boolean result = file.createNewFile();
         log.info(fileName + (result ? " create OK" : " already exists"));
     }
-    // 开启几个定时任务
+
+    /**
+     *  开启几个定时任务
+     */
     private void addScheduleTask() {
         // 定时清理过期文件，默认是每 10 s 执行一次。
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
@@ -1607,7 +1614,7 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     public void putMessagePositionInfo(DispatchRequest dispatchRequest) {
-        // 通过 dispatchRequest 的 主题-QueueId 找到对应的 ConsumeQueue，然后由找到的 ConsumeQueue 来消费。
+        // 通过 dispatchRequest 的 Topic-QueueId 找到对应的 ConsumeQueue，然后由找到的 ConsumeQueue 来消费。
         ConsumeQueue cq = this.findConsumeQueue(dispatchRequest.getTopic(), dispatchRequest.getQueueId());
         cq.putMessagePositionInfoWrapper(dispatchRequest);
     }
@@ -2048,20 +2055,20 @@ public class DefaultMessageStore implements MessageStore {
         }
         // 真正执行转发（reput）操作
         private void doReput() {
-            // 转发指针小于 CommitLog 里 minOffset 则从 minOffset 开始转发
+            // 转发指针小于 CommitLog 里 的 minOffset 则从 minOffset 开始转发（从 CommitLog 开头开始转发）
             if (this.reputFromOffset < DefaultMessageStore.this.commitLog.getMinOffset()) {
                 log.warn("The reputFromOffset={} is smaller than minPyOffset={}, this usually indicate that the dispatch behind too much and the commitlog has expired.",
                     this.reputFromOffset, DefaultMessageStore.this.commitLog.getMinOffset());
                 this.reputFromOffset = DefaultMessageStore.this.commitLog.getMinOffset();
             }
-            // 一直转发，直到把 CommitLog 里的消息转发玩了。
+            // 一直转发，直到把 CommitLog 里的消息转发完了。
             for (boolean doNext = true; this.isCommitLogAvailable() && doNext; ) {
 
                 if (DefaultMessageStore.this.getMessageStoreConfig().isDuplicationEnable()
                     && this.reputFromOffset >= DefaultMessageStore.this.getConfirmOffset()) {
                     break;
                 }
-                // 先通过 reputFromOffset 到 CommitLog 获取对应的消息
+                // 先通过转发指针 reputFromOffset 到 CommitLog 获取对应的消息
                 SelectMappedBufferResult result = DefaultMessageStore.this.commitLog.getData(reputFromOffset);
                 if (result != null) {
                     try {

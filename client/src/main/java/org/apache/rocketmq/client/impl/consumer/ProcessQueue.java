@@ -42,9 +42,18 @@ import org.apache.rocketmq.common.protocol.body.ProcessQueueInfo;
  *
  */
 public class ProcessQueue {
+    /**
+     * 负载均衡的最大存活时间，默认为 30 秒。
+     */
     public final static long REBALANCE_LOCK_MAX_LIVE_TIME =
         Long.parseLong(System.getProperty("rocketmq.client.rebalance.lockMaxLiveTime", "30000"));
+    /**
+     * 执行负载均衡的时间间隔，默认为 20 秒。
+     */
     public final static long REBALANCE_LOCK_INTERVAL = Long.parseLong(System.getProperty("rocketmq.client.rebalance.lockInterval", "20000"));
+    /**
+     * 拉取消息的最大空闲时间，默认为 120 秒。
+     */
     private final static long PULL_MAX_IDLE_TIME = Long.parseLong(System.getProperty("rocketmq.client.pull.pullMaxIdleTime", "120000"));
     private final InternalLogger log = ClientLogger.getLog();
     /**
@@ -108,7 +117,6 @@ public class ProcessQueue {
      *
      * 移除消费超时的消息
      *
-     * @param pushConsumer
      */
     public void cleanExpiredMsg(DefaultMQPushConsumer pushConsumer) {
         if (pushConsumer.getDefaultMQPushConsumerImpl().isConsumeOrderly()) {
@@ -161,7 +169,10 @@ public class ProcessQueue {
             }
         }
     }
-    // 把消息存放进 ProcessQueue 里，待消费者消费。
+
+    /**
+     * 把消息存放进 ProcessQueue 里，待消费者消费。
+     */
     public boolean putMessage(final List<MessageExt> msgs) {
         boolean dispatchToConsume = false;
         try {
@@ -225,7 +236,10 @@ public class ProcessQueue {
 
         return 0;
     }
-    // 当消费者消费完毕后把消息删除
+
+    /**
+     * 当消费者消费完毕后把消息删除
+     */
     public long removeMessage(final List<MessageExt> msgs) {
         long result = -1;
         final long now = System.currentTimeMillis();
@@ -323,7 +337,7 @@ public class ProcessQueue {
                 for (MessageExt msg : this.consumingMsgOrderlyTreeMap.values()) {
                     msgSize.addAndGet(0 - msg.getBody().length);
                 }
-                // 清空
+                // 清空 consumingMsgOrderlyTreeMap
                 this.consumingMsgOrderlyTreeMap.clear();
                 // offset + 1 意思就是设置下一个消息的起始 offset
                 if (offset != null) {
@@ -340,10 +354,11 @@ public class ProcessQueue {
     }
 
     /**
-     * 重新消费消息
+     * Consumer 执行重新消费消息
      */
     public void makeMessageToCosumeAgain(List<MessageExt> msgs) {
         try {
+            // 上写锁
             this.lockTreeMap.writeLock().lockInterruptibly();
             try {
                 // 把要重新消费的消息再次放入 msgTreeMap 里

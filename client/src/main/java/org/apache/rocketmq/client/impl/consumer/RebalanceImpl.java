@@ -243,7 +243,7 @@ public abstract class RebalanceImpl {
             for (final Map.Entry<String, SubscriptionData> entry : subTable.entrySet()) {
                 final String topic = entry.getKey();
                 try {
-                    // 循环针对所有订阅的主题，做负载均衡，如果有新的消息队列加入则立即分配一个PullRequest拉取消息。
+                    // 循环针对所有订阅的主题，做负载均衡，如果有新的 MessageQueue 加入则立即分配一个PullRequest拉取消息。
                     this.rebalanceByTopic(topic, isOrder);
                 } catch (Throwable e) {
                     if (!topic.startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
@@ -252,7 +252,7 @@ public abstract class RebalanceImpl {
                 }
             }
         }
-        //删除那些已经不能被自己用来消费的消息队列
+        //删除那些已经不能被自己用来消费的 MessageQueue
         this.truncateMessageQueueNotMyTopic();
     }
 
@@ -286,9 +286,9 @@ public abstract class RebalanceImpl {
             }
             // 集群模式
             case CLUSTERING: {
-                // 主题对应的所有消息队列
+                // 1、topic 对应的所有 MessageQueue
                 Set<MessageQueue> mqSet = this.topicSubscribeInfoTable.get(topic);
-                // 找到订阅了该主题并且属于当前消费者组的所有消费者ID
+                // 2、找到订阅了该 topic 并且属于当前 ConsumerGroup 的所有 Consumer ID
                 List<String> cidAll = this.mQClientFactory.findConsumerIdList(topic, consumerGroup);
                 if (null == mqSet) {
                     if (!topic.startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
@@ -303,7 +303,7 @@ public abstract class RebalanceImpl {
                 if (mqSet != null && cidAll != null) {
                     List<MessageQueue> mqAll = new ArrayList<MessageQueue>();
                     mqAll.addAll(mqSet);
-                    // 对 mqAll 和 cidALL 排序
+                    // 3、对 MessageQueue 和 ConsumerId 排序
                     Collections.sort(mqAll);
                     Collections.sort(cidAll);
                     /**
@@ -323,7 +323,7 @@ public abstract class RebalanceImpl {
                      */
                     // 负载均衡策略，默认是平均分配策略
                     AllocateMessageQueueStrategy strategy = this.allocateMessageQueueStrategy;
-
+                    // 4、 按照初始化是指定的分配策略，获取分配的 MessageQueue 列表
                     List<MessageQueue> allocateResult = null;
                     try {
                         // 通过负载均衡策略获取分配好的消息队列，之后消费是按照这个顺序。
@@ -342,14 +342,14 @@ public abstract class RebalanceImpl {
                     if (allocateResult != null) {
                         allocateResultSet.addAll(allocateResult);
                     }
-                    // 更新 rebalanceImpl 中的 processQueue 用来缓存收到的消息，对于新加入的消息队列，提交一次拉请求
+                    // 5、更新 rebalanceImpl 中的 processQueue 用来缓存收到的消息，对于新加入的 MessageQueue，提交一次 PullRequest。
                     boolean changed = this.updateProcessQueueTableInRebalance(topic, allocateResultSet, isOrder);
                     if (changed) {
                         log.info(
                             "rebalanced result changed. allocateMessageQueueStrategyName={}, group={}, topic={}, clientId={}, mqAllSize={}, cidAllSize={}, rebalanceResultSize={}, rebalanceResultSet={}",
                             strategy.getName(), consumerGroup, topic, this.mQClientFactory.getClientId(), mqSet.size(), cidAll.size(),
                             allocateResultSet.size(), allocateResultSet);
-                        // 同步数据到 broker，通过发送一次心跳实现
+                        // 6、同步数据到 broker，通过发送一次心跳实现
                         this.messageQueueChanged(topic, mqSet, allocateResultSet);
                     }
                 }
@@ -381,8 +381,8 @@ public abstract class RebalanceImpl {
     /**
      * 1、先到之前缓存的 processQueueTable 里找到我们指定主题的所有消息队列，然后找哪些消息队列不在 mqSet 而在  processQueueTable 里，
      *    找到后到 processQueueTable 把那些消息队列删除，以后不用这些消息队列。
-     * 2、看下有没有新的消息队列加入，如果有的话要把缓存在 processQueueTable 里的 ProcessQueue 和 消息队列更新下。
-     * 3、更新完毕后给这些新添加的消息队列立即分配一个拉请求，让 PullMessageService 执行拉取消息。
+     * 2、看下有没有新的消息队列加入，如果有的话要把缓存在 processQueueTable 里的 ProcessQueue 和 MessageQueue 更新下。
+     * 3、更新完毕后给这些新添加的 MessageQueue 立即分配一个 PullRequest，让 PullMessageService 执行拉取消息。
      */
     private boolean updateProcessQueueTableInRebalance(final String topic, final Set<MessageQueue> mqSet,
         final boolean isOrder) {
@@ -427,7 +427,7 @@ public abstract class RebalanceImpl {
                 }
             }
         }
-        // 拉请求列表
+        // PullRequest列表
         List<PullRequest> pullRequestList = new ArrayList<PullRequest>();
         // 遍历 mqSet 里的消息队列
         for (MessageQueue mq : mqSet) {
@@ -446,20 +446,20 @@ public abstract class RebalanceImpl {
                 // 计算出下一次拉取消息的起始偏移量
                 long nextOffset = this.computePullFromWhere(mq);
                 if (nextOffset >= 0) {
-                    // 为新的Queue初始化一个ProcessQueue，用来缓存收到的消息
+                    // 为新的Queue初始化一个 ProcessQueue，用来缓存收到的消息
                     ProcessQueue pre = this.processQueueTable.putIfAbsent(mq, pq);
                     // 可能有其他线程放入了
                     if (pre != null) {
                         log.info("doRebalance, {}, mq already exists, {}", consumerGroup, mq);
                     } else {
-                        // 已经成功添加到缓存里了，对拉请求指定好消息队列，processQueue等。
+                        // 已经成功添加到缓存里了，对PullRequest指定好消息队列，processQueue等。
                         log.info("doRebalance, {}, add a new mq, {}", consumerGroup, mq);
                         PullRequest pullRequest = new PullRequest();
                         pullRequest.setConsumerGroup(consumerGroup);
                         pullRequest.setNextOffset(nextOffset);
                         pullRequest.setMessageQueue(mq);
                         pullRequest.setProcessQueue(pq);
-                        // 把拉请求放入拉请求列表里
+                        // 把PullRequest放入PullRequest列表里
                         pullRequestList.add(pullRequest);
                         changed = true;
                     }
@@ -468,7 +468,7 @@ public abstract class RebalanceImpl {
                 }
             }
         }
-        //分发拉请求到 PullMessageService 来拉取消息
+        //分发 PullRequest 求到 PullMessageService 来拉取消息
         this.dispatchPullRequest(pullRequestList);
 
         return changed;

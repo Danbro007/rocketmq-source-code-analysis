@@ -71,7 +71,7 @@ public class PullAPIWrapper {
     }
 
     /**
-     * 处理拉请求
+     * 处理PullRequest
      * @param mq
      * @param pullResult
      * @param subscriptionData

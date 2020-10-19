@@ -31,10 +31,18 @@ public class IndexHeader {
     private final ByteBuffer byteBuffer;
     private AtomicLong beginTimestamp = new AtomicLong(0);
     private AtomicLong endTimestamp = new AtomicLong(0);
+    /**
+     * 当前 IndexFile 里最小的 offset，这里的 offset 是在 CommitLog 里的。
+     */
     private AtomicLong beginPhyOffset = new AtomicLong(0);
+    /**
+     * 当前 IndexFile 里最大的 offset，这里的 offset 是在 CommitLog 里的。
+     */
     private AtomicLong endPhyOffset = new AtomicLong(0);
     private AtomicInteger hashSlotCount = new AtomicInteger(0);
-
+    /**
+     * Index 总数
+     */
     private AtomicInteger indexCount = new AtomicInteger(1);
 
     public IndexHeader(final ByteBuffer byteBuffer) {

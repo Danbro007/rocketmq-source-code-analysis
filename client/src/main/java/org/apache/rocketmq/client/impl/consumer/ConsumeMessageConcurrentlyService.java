@@ -268,10 +268,6 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
 
     /**
      * 处理消费结果
-     *
-     * @param status
-     * @param context
-     * @param consumeRequest
      */
     public void processConsumeResult(
             final ConsumeConcurrentlyStatus status,
@@ -304,12 +300,14 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
         }
 
         switch (this.defaultMQPushConsumer.getMessageModel()) {
+            // 广播模式
             case BROADCASTING:
                 for (int i = ackIndex + 1; i < consumeRequest.getMsgs().size(); i++) {
                     MessageExt msg = consumeRequest.getMsgs().get(i);
                     log.warn("BROADCASTING, the message consume failed, drop it, {}", msg.toString());
                 }
                 break;
+            // 集群模式
             case CLUSTERING:
                 List<MessageExt> msgBackFailed = new ArrayList<MessageExt>(consumeRequest.getMsgs().size());
                 // 遍历那些发送失败的消息，然后消息发回 Broker 让它重新发送，如果还是发送失败则加入 msgBackFailed 里。
@@ -323,9 +321,9 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
                 }
                 // 此时 msgBackFailed 里的可能会有消息，那我们尝试重新本地消费。
                 if (!msgBackFailed.isEmpty()) {
-                    // 把 consumeRequest 里存的那些发回 Broker 失败的消息删除
+                    // 把 consumeRequest 里存的那些发回到 Broker 失败的消息给删除
                     consumeRequest.getMsgs().removeAll(msgBackFailed);
-
+                    // 发送失败的消息再次本地消费
                     this.submitConsumeRequestLater(msgBackFailed, consumeRequest.getProcessQueue(), consumeRequest.getMessageQueue());
                 }
                 break;
@@ -346,10 +344,6 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
 
     /**
      * 发送请求让 broker 重新发送消息。也就是重试。
-     *
-     * @param msg
-     * @param context
-     * @return
      */
     public boolean sendMessageBack(final MessageExt msg, final ConsumeConcurrentlyContext context) {
         int delayLevel = context.getDelayLevelWhenNextConsume();

@@ -145,6 +145,9 @@ public class BrokerController {
     private final BrokerOuterAPI brokerOuterAPI;
     private final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl(
         "BrokerControllerScheduledThread"));
+    /**
+     * 负责同步 broker 配置数据，不会同步消息数据。
+     */
     private final SlaveSynchronize slaveSynchronize;
     private final BlockingQueue<Runnable> sendThreadPoolQueue;
     private final BlockingQueue<Runnable> pullThreadPoolQueue;
@@ -252,8 +255,6 @@ public class BrokerController {
 
     /**
      * Broker 的初始化
-     * @return
-     * @throws CloneNotSupportedException
      */
     public boolean initialize() throws CloneNotSupportedException {
         boolean result = this.topicConfigManager.load();
@@ -276,21 +277,23 @@ public class BrokerController {
                 // 加载 MessageStore 的插件
                 MessageStorePluginContext context = new MessageStorePluginContext(messageStoreConfig, brokerStatsManager, messageArrivingListener, brokerConfig);
                 this.messageStore = MessageStoreFactory.build(context, this.messageStore);
-                // 添加一个 CommitLog 的分发器
+                //添加消息分发器，分发到布隆过滤器
                 this.messageStore.getDispatcherList().addFirst(new CommitLogDispatcherCalcBitMap(this.brokerConfig, this.consumerFilterManager));
             } catch (IOException e) {
                 result = false;
                 log.error("Failed to initialize", e);
             }
         }
-        // 加载存储的消息
+        // message store加载内存映射文件，commit log文件，consumer queue文件，index文件
         result = result && this.messageStore.load();
         // 加载成功会对几个服务进行初始化，注册处理器，开启几个定时任务
         if (result) {
             this.remotingServer = new NettyRemotingServer(this.nettyServerConfig, this.clientHousekeepingService);
             NettyServerConfig fastConfig = (NettyServerConfig) this.nettyServerConfig.clone();
+            // 传说中的VIP channel，端口是broker端口-2（10909），不接收consumer的Pull请求
             fastConfig.setListenPort(nettyServerConfig.getListenPort() - 2);
             this.fastRemotingServer = new NettyRemotingServer(fastConfig, this.clientHousekeepingService);
+            // 初始化一系列客户端命令执行的线程池
             this.sendMessageExecutor = new BrokerFixedThreadPoolExecutor(
                 this.brokerConfig.getSendMessageThreadPoolNums(),
                 this.brokerConfig.getSendMessageThreadPoolNums(),
@@ -414,7 +417,7 @@ public class BrokerController {
                     }
                 }
             }, 10, 1, TimeUnit.SECONDS);
-            // 每隔 60 s 打印已经存储在 CommitLog 里但是还没发送给 ConsumeQueue 的数据大小
+            // 每隔 60 s 打印已经存储在 CommitLog 里但是还没分发到 ConsumeQueue 的数据大小
             this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
                 @Override
@@ -445,7 +448,7 @@ public class BrokerController {
             }
 
             if (!messageStoreConfig.isEnableDLegerCommitLog()) {
-                // 如果当前 Broker 是 Slave 则会把 HA Master 消息更新为配置文件里的
+                // 如果是slave，启动定时任务，每分钟从master同步配置和offset
                 if (BrokerRole.SLAVE == this.messageStoreConfig.getBrokerRole()) {
                     if (this.messageStoreConfig.getHaMasterAddress() != null && this.messageStoreConfig.getHaMasterAddress().length() >= 6) {
                         this.messageStore.updateHaMasterAddress(this.messageStoreConfig.getHaMasterAddress());
@@ -927,7 +930,7 @@ public class BrokerController {
             this.registerBrokerAll(true, false, true);
         }
         /**
-         * 定时任务，默认每隔 30 秒会主动向所有的 nameserver 上报信息
+         * 定时任务，默认每隔 30 秒会主动向所有的 nameserver 发送心跳
          */
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
@@ -968,7 +971,7 @@ public class BrokerController {
         TopicConfigSerializeWrapper topicConfigSerializeWrapper = new TopicConfigSerializeWrapper();
         topicConfigSerializeWrapper.setDataVersion(dataVersion);
         topicConfigSerializeWrapper.setTopicConfigTable(topicConfigTable);
-        // 通知所有的 NameServer
+        // 执行同步
         doRegisterBrokerAll(true, false, topicConfigSerializeWrapper);
     }
 
@@ -998,12 +1001,12 @@ public class BrokerController {
 
     /**
      *
-     * 同步到所有的 NameServer
+     * 同步数据到 NameServer
      *
      */
     private void doRegisterBrokerAll(boolean checkOrderConfig, boolean oneway,
         TopicConfigSerializeWrapper topicConfigWrapper) {
-        // 向所有的 nameserver 发送心跳并返回结果
+
         List<RegisterBrokerResult> registerBrokerResultList = this.brokerOuterAPI.registerBrokerAll(
             this.brokerConfig.getBrokerClusterName(),
             this.getBrokerAddr(),

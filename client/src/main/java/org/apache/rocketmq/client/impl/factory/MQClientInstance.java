@@ -144,7 +144,7 @@ public class MQClientInstance {
         this.clientId = clientId;
 
         this.mQAdminImpl = new MQAdminImpl(this);
-        // 拉请求服务，异步发送请求到broker并负责将返回结果放到缓存队列
+        // PullRequest服务，异步发送请求到broker并负责将返回结果放到缓存队列
         this.pullMessageService = new PullMessageService(this);
         // 定时做一次负载均衡操作
         this.rebalanceService = new RebalanceService(this);
@@ -252,13 +252,13 @@ public class MQClientInstance {
                     // 启动 Netty 客户端，之后通过这个客户端向 Broker 发送请求。
                     this.mQClientAPIImpl.start();
                     // Start various schedule tasks
-                    // 启动各种定时任务，包括向 NameServer 发送心跳包，更新路由信息等。
+                    // 1、启动各种定时任务，包括向 NameServer 发送心跳包，更新路由信息等。
                     this.startScheduledTask();
                     // Start pull service
-                    // 开启拉取消息的任务来处理拉请求
+                    // 2、 开启拉取消息的任务来处理PullRequest
                     this.pullMessageService.start();
                     // Start rebalance service
-                    // 开启负载均衡的服务
+                    // 3、开启负载均衡的服务
                     // 触发条件有两种：
                     // 1、每隔 20 s 触发一次
                     // 2、接口触发：
@@ -266,7 +266,7 @@ public class MQClientInstance {
                     //      2）consumer 启动的时候
                     this.rebalanceService.start();
                     // Start push service
-                    // 开启生产者,这里的生产者就是在初始化客户端设置的，是为了重试消费设置的。
+                    // 4、开启生产者,这里的生产者就是在初始化客户端设置的，是为了重试消费设置的。
                     this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
                     log.info("the client factory [{}] start OK", this.clientId);
                     this.serviceState = ServiceState.RUNNING;

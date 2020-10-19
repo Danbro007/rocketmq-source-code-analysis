@@ -342,6 +342,15 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         );
     }
 
+    /**
+     *
+     * @param requestHeader
+     * @param response
+     * @param request
+     * @param msg
+     * @param topicConfig
+     * @return
+     */
     private boolean handleRetryAndDLQ(SendMessageRequestHeader requestHeader, RemotingCommand response,
                                       RemotingCommand request,
                                       MessageExt msg, TopicConfig topicConfig) {
@@ -394,20 +403,20 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
                                         final RemotingCommand request,
                                         final SendMessageContext sendMessageContext,
                                         final SendMessageRequestHeader requestHeader) throws RemotingCommandException {
-        //创建响应
+        //1、创建响应
         final RemotingCommand response = RemotingCommand.createResponseCommand(SendMessageResponseHeader.class);
         // 创建响应头
         final SendMessageResponseHeader responseHeader = (SendMessageResponseHeader)response.readCustomHeader();
 
         response.setOpaque(request.getOpaque());
-
+        // 添加额外属性
         response.addExtField(MessageConst.PROPERTY_MSG_REGION, this.brokerController.getBrokerConfig().getRegionId());
         response.addExtField(MessageConst.PROPERTY_TRACE_SWITCH, String.valueOf(this.brokerController.getBrokerConfig().isTraceOn()));
 
         log.debug("receive SendMessage request command, {}", request);
-        // Broker 接收到 Producer 请求的时间
+        // Broker 响应 Producer 请求的时间
         final long startTimstamp = this.brokerController.getBrokerConfig().getStartAcceptSendRequestTimeStamp();
-        // 如果接收到请求时间大于当前时间说明出现了未知的系统错误。
+        // 2、如果接收到请求时间大于当前时间说明出现了未知的系统错误。
         if (this.brokerController.getMessageStore().now() < startTimstamp) {
             response.setCode(ResponseCode.SYSTEM_ERROR);
             response.setRemark(String.format("broker unable to service, until %s", UtilAll.timeMillisToHumanString2(startTimstamp)));
@@ -415,7 +424,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         }
 
         response.setCode(-1);
-        // 检查 topic 和 queue，如果不存在且 broker 设置中允许自动创建，则自动创建
+        // 3、检查 topic 和 queue，如果不存在且 broker 设置中允许自动创建，则自动创建 topic。
         super.msgCheck(ctx, requestHeader, response);
         if (response.getCode() != -1) {
             return response;
@@ -424,16 +433,19 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         final byte[] body = request.getBody();
         // QueueID
         int queueIdInt = requestHeader.getQueueId();
+        // 4、获取 TopicConfig
         TopicConfig topicConfig = this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
-        // QueueID < 0 则生成一个随机ID
+        // 5、QueueID < 0 则随机找一个 Queue
         if (queueIdInt < 0) {
             queueIdInt = Math.abs(this.random.nextInt() % 99999999) % topicConfig.getWriteQueueNums();
         }
-
+        // 6、重新封装 request 中的 message 成 MessageExtBrokerInner
         MessageExtBrokerInner msgInner = new MessageExtBrokerInner();
         msgInner.setTopic(requestHeader.getTopic());
         msgInner.setQueueId(queueIdInt);
         // 重试消息的处理
+        // 7、对于RETRY消息，1)判断是否consumer还存在
+        //  2)如果超过最大重发次数，尝试创建DLQ，并将topic设置成DeadQueue,消息将被存入死信队列
         if (!handleRetryAndDLQ(requestHeader, response, request, msgInner, topicConfig)) {
             return response;
         }
@@ -463,10 +475,10 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             }
             putMessageResult = this.brokerController.getTransactionalMessageService().prepareMessage(msgInner);
         } else {
-            // 把消息存储到 Broker 的文件里
+            // 8、把消息存储到 Broker 的文件里
             putMessageResult = this.brokerController.getMessageStore().putMessage(msgInner);
         }
-        // 对存储结果进行处理，比如把存储结果的状态与响应状态进行转换，数据统计等。
+        // 9、对存储结果进行处理，比如把存储结果的状态与响应状态进行转换，数据统计等。
         return handlePutMessageResult(putMessageResult, response, request, msgInner, responseHeader, sendMessageContext, ctx, queueIdInt);
 
     }
