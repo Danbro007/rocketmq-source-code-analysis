@@ -23,6 +23,8 @@ public interface TransactionListener {
     /**
      * When send transactional prepare(half) message succeed, this method will be invoked to execute local transaction.
      *
+     * 当发送事务 prepare（half）消息成功时，这个方法将会被调用来执行本地事务。
+     *
      * @param msg Half(prepare) message
      * @param arg Custom business parameter
      * @return Transaction state
@@ -32,6 +34,8 @@ public interface TransactionListener {
     /**
      * When no response to prepare(half) message. broker will send check message to check the transaction status, and this
      * method will be invoked to get local transaction status.
+     *
+     * 当 prepare（half）消息没有响应时，Broker 将会发送回查消息来检查事务状态。这个将会被调用来获取本地事务状态。
      *
      * @param msg Check message
      * @return Transaction state

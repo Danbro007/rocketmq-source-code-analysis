@@ -461,11 +461,14 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         MessageAccessor.putProperty(msgInner, MessageConst.PROPERTY_CLUSTER, clusterName);
         msgInner.setPropertiesString(MessageDecoder.messageProperties2String(msgInner.getProperties()));
         PutMessageResult putMessageResult = null;
+        // 把请求头的属性转换成 Map
         Map<String, String> oriProps = MessageDecoder.string2messageProperties(requestHeader.getProperties());
+        // 看看请求头的属性里面有没有 TRAN_MSG 属性，有的话说明这是 prepare 请求
         String traFlag = oriProps.get(MessageConst.PROPERTY_TRANSACTION_PREPARED);
-        // 事务消息的权限判断，通过判断则执行事务消息
+        // 如果当前请求时 Prepare 请求并且
         if (traFlag != null && Boolean.parseBoolean(traFlag)
             && !(msgInner.getReconsumeTimes() > 0 && msgInner.getDelayTimeLevel() > 0)) { //For client under version 4.6.1
+            // 判断当前 Broker 是否不支持事务，不支持则返回 NO_PERMISSION 。
             if (this.brokerController.getBrokerConfig().isRejectTransactionMessage()) {
                 response.setCode(ResponseCode.NO_PERMISSION);
                 response.setRemark(
@@ -473,9 +476,11 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
                         + "] sending transaction message is forbidden");
                 return response;
             }
+            // 支持则会处理 prepare 消息，既这个 prepare 消息存储到 Broker 的 transactionalMessageBridge 里。
             putMessageResult = this.brokerController.getTransactionalMessageService().prepareMessage(msgInner);
         } else {
-            // 8、把消息存储到 Broker 的文件里
+            //
+            // 8、不是事务消息则把消息存储到 Broker 的文件里
             putMessageResult = this.brokerController.getMessageStore().putMessage(msgInner);
         }
         // 9、对存储结果进行处理，比如把存储结果的状态与响应状态进行转换，数据统计等。

@@ -160,6 +160,8 @@ public interface MessageStore {
     /**
      * Look up the message by given commit log offset.
      *
+     * 通过给定的 CommitLog 的 offset 查找
+     *
      * @param commitLogOffset physical offset.
      * @return Message whose physical offset is as specified.
      */

@@ -45,7 +45,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class TransactionalMessageServiceImpl implements TransactionalMessageService {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.TRANSACTION_LOGGER_NAME);
-
+    /**
+     * 用于存储 prepare 消息
+     */
     private TransactionalMessageBridge transactionalMessageBridge;
 
     private static final int PULL_MSG_RETRY_NUMBER = 1;
@@ -450,9 +452,14 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
         return getResult;
     }
 
+    /**
+     * 通过 offset 到 CommitLog 里找到存储的 half 消息并返回结果。
+     */
     private OperationResult getHalfMessageByOffset(long commitLogOffset) {
         OperationResult response = new OperationResult();
+        // 查找到 half 消息
         MessageExt messageExt = this.transactionalMessageBridge.lookMessageByOffset(commitLogOffset);
+        // 找到了则在把找到 half 消息放入结果并且返回 SUCCESS 状态码。
         if (messageExt != null) {
             response.setPrepareMessage(messageExt);
             response.setResponseCode(ResponseCode.SUCCESS);
@@ -465,6 +472,7 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
 
     @Override
     public boolean deletePrepareMessage(MessageExt msgExt) {
+        // 把 prepare 消息标记为 “d” 也就是逻辑删除
         if (this.transactionalMessageBridge.putOpMessage(msgExt, TransactionalMessageUtil.REMOVETAG)) {
             log.debug("Transaction op message write successfully. messageId={}, queueId={} msgExt:{}", msgExt.getMsgId(), msgExt.getQueueId(), msgExt);
             return true;

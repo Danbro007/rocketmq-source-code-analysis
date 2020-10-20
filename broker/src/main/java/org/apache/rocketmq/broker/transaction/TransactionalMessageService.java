@@ -27,6 +27,8 @@ public interface TransactionalMessageService {
     /**
      * Process prepare message, in common, we should put this message to storage service.
      *
+     * 用于处理 prepare 消息，通常我们把消息放在存储服务上（MessageStore）。
+     *
      * @param messageInner Prepare(Half) message.
      * @return Prepare message storage result.
      */
@@ -34,6 +36,8 @@ public interface TransactionalMessageService {
 
     /**
      * Process prepare message in async manner, we should put this message to storage service
+     *
+     * 异步的处理 prepare 消息，我们把消息放在存储服务上（MessageStore）。
      *
      * @param messageInner Prepare(Half) message.
      * @return CompletableFuture of put result, will be completed at put success(flush and replica done)
@@ -43,12 +47,16 @@ public interface TransactionalMessageService {
     /**
      * Delete prepare message when this message has been committed or rolled back.
      *
+     * 当消息已经被提交或者回滚时删除 prepare 消息。
+     *
      * @param messageExt
      */
     boolean deletePrepareMessage(MessageExt messageExt);
 
     /**
      * Invoked to process commit prepare message.
+     *
+     * 用于处理 commit 请求。
      *
      * @param requestHeader Commit message request header.
      * @return Operate result contains prepare message and relative error code.
@@ -58,6 +66,8 @@ public interface TransactionalMessageService {
     /**
      * Invoked to roll back prepare message.
      *
+     * 用于回滚 prepare 消息。
+     *
      * @param requestHeader Prepare message request header.
      * @return Operate result contains prepare message and relative error code.
      */
@@ -66,6 +76,8 @@ public interface TransactionalMessageService {
     /**
      * Traverse uncommitted/unroll back half message and send check back request to producer to obtain transaction
      * status.
+     *
+     * 遍历为提交或者为回滚的 half 消息并向发送 Producer 回查请求来获取事务的状态
      *
      * @param transactionTimeout The minimum time of the transactional message to be checked firstly, one message only
      * exceed this time interval that can be checked.
@@ -78,6 +90,8 @@ public interface TransactionalMessageService {
 
     /**
      * Open transaction service.
+     *
+     * 开启事务服务
      *
      * @return If open success, return true.
      */

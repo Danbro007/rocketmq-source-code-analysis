@@ -192,6 +192,9 @@ public class TransactionalMessageBridge {
         return foundList;
     }
 
+    /**
+     * 把消息存储到 MessageStore 里，在存储之前会把消息进行解析和转换。
+     */
     public PutMessageResult putHalfMessage(MessageExtBrokerInner messageInner) {
         return store.putMessage(parseHalfMessageInner(messageInner));
     }
@@ -200,19 +203,29 @@ public class TransactionalMessageBridge {
         return store.asyncPutMessage(parseHalfMessageInner(messageInner));
     }
 
+    /**
+     * 1、把消息的 REAL_TOPIC 设置为当前消息的 topic，REAL_QID 设置为消息的 QueueID。
+     *   这样是为了所有的 prepare 消息发送到同一个 topic 的同一个 Queue 上面。
+     */
     private MessageExtBrokerInner parseHalfMessageInner(MessageExtBrokerInner msgInner) {
+        // 给消息设置属性，key 为 REAL_TOPIC，value 为消息的 topic。
         MessageAccessor.putProperty(msgInner, MessageConst.PROPERTY_REAL_TOPIC, msgInner.getTopic());
+        // 给消息设置属性，key 为 REAL_QID ，value 为消息的 QueueID。
         MessageAccessor.putProperty(msgInner, MessageConst.PROPERTY_REAL_QUEUE_ID,
             String.valueOf(msgInner.getQueueId()));
         msgInner.setSysFlag(
             MessageSysFlag.resetTransactionValue(msgInner.getSysFlag(), MessageSysFlag.TRANSACTION_NOT_TYPE));
+        // 给消息设置一个 topic ，名为 RMQ_SYS_TRANS_HALF_TOPIC，由于 Consumer 没有订阅这个 topic，所以此时 Consumer 还不能消费到。
         msgInner.setTopic(TransactionalMessageUtil.buildHalfTopic());
+        // 消息的 Queue 设置为 0
         msgInner.setQueueId(0);
+        // 把消息的所有属性进行转换成字符串
         msgInner.setPropertiesString(MessageDecoder.messageProperties2String(msgInner.getProperties()));
         return msgInner;
     }
 
     public boolean putOpMessage(MessageExt messageExt, String opType) {
+
         MessageQueue messageQueue = new MessageQueue(messageExt.getTopic(),
             this.brokerController.getBrokerConfig().getBrokerName(), messageExt.getQueueId());
         if (TransactionalMessageUtil.REMOVETAG.equals(opType)) {
@@ -302,12 +315,13 @@ public class TransactionalMessageBridge {
     /**
      * Use this function while transaction msg is committed or rollback write a flag 'd' to operation queue for the
      * msg's offset
-     *
-     * @param messageExt Op message
-     * @param messageQueue Op message queue
+     * 在事务消息被提交或回滚时，使用此函数为消息的 offset 向操作队列写入一个'd'标志
+     * @param messageExt Op message  prepare 消息
+     * @param messageQueue Op message queue 存储 prepare 消息的消息队列
      * @return This method will always return true.
      */
     private boolean addRemoveTagInTransactionOp(MessageExt messageExt, MessageQueue messageQueue) {
+        // 生成一个消息，topic 是 RMQ_SYS_TRANS_OP_HALF_TOPIC，tag 是 “d”,内容是消息的 QueueOffset。
         Message message = new Message(TransactionalMessageUtil.buildOpTopic(), TransactionalMessageUtil.REMOVETAG,
             String.valueOf(messageExt.getQueueOffset()).getBytes(TransactionalMessageUtil.charset));
         writeOp(message, messageQueue);
