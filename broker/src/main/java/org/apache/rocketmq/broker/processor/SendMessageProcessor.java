@@ -72,10 +72,6 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
     /**
      * 异步处理 Producer 的请求
-     * @param ctx
-     * @param request
-     * @return
-     * @throws RemotingCommandException
      */
     @Override
     public RemotingCommand processRequest(ChannelHandlerContext ctx,
@@ -264,12 +260,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
     }
 
     /**
-     * 接收 Producer 发送的单条消息，然后把消息存储在 Broker 中。
-     * @param ctx
-     * @param request
-     * @param mqtraceContext
-     * @param requestHeader
-     * @return
+     * 接收 Producer 异步发送的单条消息，然后把消息存储在 Broker 中。
      */
     private CompletableFuture<RemotingCommand> asyncSendMessage(ChannelHandlerContext ctx, RemotingCommand request,
                                                                 SendMessageContext mqtraceContext,
@@ -444,7 +435,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         msgInner.setTopic(requestHeader.getTopic());
         msgInner.setQueueId(queueIdInt);
         // 重试消息的处理
-        // 7、对于RETRY消息，1)判断是否consumer还存在
+        // 7、对于 RETRY 消息，1)判断是否 Consumer 还存在
         //  2)如果超过最大重发次数，尝试创建DLQ，并将topic设置成DeadQueue,消息将被存入死信队列
         if (!handleRetryAndDLQ(requestHeader, response, request, msgInner, topicConfig)) {
             return response;
@@ -463,9 +454,9 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         PutMessageResult putMessageResult = null;
         // 把请求头的属性转换成 Map
         Map<String, String> oriProps = MessageDecoder.string2messageProperties(requestHeader.getProperties());
-        // 看看请求头的属性里面有没有 TRAN_MSG 属性，有的话说明这是 prepare 请求
+        // 看看请求头的属性里面有没有 TRAN_MSG 属性，有的话说明可能这是 prepare 请求
         String traFlag = oriProps.get(MessageConst.PROPERTY_TRANSACTION_PREPARED);
-        // 如果当前请求时 Prepare 请求并且
+        // TRAN_MSG 属性的值为 true 说明发送的是 prepare 消息
         if (traFlag != null && Boolean.parseBoolean(traFlag)
             && !(msgInner.getReconsumeTimes() > 0 && msgInner.getDelayTimeLevel() > 0)) { //For client under version 4.6.1
             // 判断当前 Broker 是否不支持事务，不支持则返回 NO_PERMISSION 。
@@ -476,7 +467,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
                         + "] sending transaction message is forbidden");
                 return response;
             }
-            // 支持则会处理 prepare 消息，既这个 prepare 消息存储到 Broker 的 transactionalMessageBridge 里。
+            // 支持则会处理 prepare 消息，既这个 prepare 消息通过 transactionalMessageBridge 存储到磁盘中。
             putMessageResult = this.brokerController.getTransactionalMessageService().prepareMessage(msgInner);
         } else {
             //

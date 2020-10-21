@@ -32,7 +32,9 @@ public class MessageExt extends Message {
     private int queueId;
 
     private int storeSize;
-
+    /**
+     * 消息在 ConsumeQueue 的 offset
+     */
     private long queueOffset;
     private int sysFlag;
     private long bornTimestamp;
@@ -41,6 +43,9 @@ public class MessageExt extends Message {
     private long storeTimestamp;
     private SocketAddress storeHost;
     private String msgId;
+    /**
+     * 消息在 CommitLog 的 offset
+     */
     private long commitLogOffset;
     private int bodyCRC;
     private int reconsumeTimes;

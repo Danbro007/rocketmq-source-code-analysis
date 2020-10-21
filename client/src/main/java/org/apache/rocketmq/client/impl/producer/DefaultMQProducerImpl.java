@@ -147,7 +147,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
     }
 
     /**
-     * 给 Producer 初始化事务环境，说人话就是如果 Producer 线程池，没有的话则初始化一个，有的话就不用了。
+     *  Producer 是否有执行回查任务的线程池，没有的话则初始化一个，有的话就不用了。
      */
     public void initTransactionEnv() {
         TransactionMQProducer producer = (TransactionMQProducer) this.defaultMQProducer;
@@ -323,6 +323,9 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         return null;
     }
 
+    /**
+     * 把回查事务状态的任务提交线程池中。
+     */
     @Override
     public void checkTransactionState(final String addr, final MessageExt msg,
                                       final CheckTransactionStateRequestHeader header) {
@@ -335,15 +338,18 @@ public class DefaultMQProducerImpl implements MQProducerInner {
             @Override
             public void run() {
                 TransactionCheckListener transactionCheckListener = DefaultMQProducerImpl.this.checkListener();
+                // 回查事务的监听器，回查本地事务状态。
                 TransactionListener transactionListener = getCheckListener();
                 if (transactionCheckListener != null || transactionListener != null) {
                     LocalTransactionState localTransactionState = LocalTransactionState.UNKNOW;
                     Throwable exception = null;
                     try {
+                        // 旧的 Api 现在不用它了
                         if (transactionCheckListener != null) {
                             localTransactionState = transactionCheckListener.checkLocalTransactionState(message);
                         } else if (transactionListener != null) {
                             log.debug("Used new check API in transaction message");
+                            // 调用事务监听器执行回查事务并返回回查事务结果
                             localTransactionState = transactionListener.checkLocalTransaction(message);
                         } else {
                             log.warn("CheckTransactionState, pick transactionListener by group[{}] failed", group);
@@ -362,6 +368,9 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 }
             }
 
+            /**
+             * 处理事务回查结果，把结果发送到 Broker 。
+             */
             private void processTransactionState(
                     final LocalTransactionState localTransactionState,
                     final String producerGroup,
@@ -1271,6 +1280,10 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         }
     }
 
+    /**
+     * 1、先把消息标记为事务消息，然后发送给 Broker。
+     * 2、
+     */
     public TransactionSendResult sendMessageInTransaction(final Message msg,
                                                           final LocalTransactionExecuter localTransactionExecuter, final Object arg)
             throws MQClientException {
@@ -1284,12 +1297,13 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         if (msg.getDelayTimeLevel() != 0) {
             MessageAccessor.clearProperty(msg, MessageConst.PROPERTY_DELAY_TIME_LEVEL);
         }
-        // 2、对消息进行检查
+        // 2、对消息内容判空和长度检查
         Validators.checkMessage(msg, this.defaultMQProducer);
 
         SendResult sendResult = null;
-        // 3、给消息标记为 prepare
+        // 3、给消息的 TRAN_MSG 属性设置为 true，Broker 是通过这个属性来判断是不是事务消息。
         MessageAccessor.putProperty(msg, MessageConst.PROPERTY_TRANSACTION_PREPARED, "true");
+        // 消息的 PGROUP 属性设置为当前 Producer 的 ProducerGroup。
         MessageAccessor.putProperty(msg, MessageConst.PROPERTY_PRODUCER_GROUP, this.defaultMQProducer.getProducerGroup());
         try {
             // 4、向 Broker 发送 prepare 消息，方法和发送普通消息一样。
@@ -1419,7 +1433,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         requestHeader.setTranStateTableOffset(sendResult.getQueueOffset());
         requestHeader.setMsgId(sendResult.getMsgId());
         String remark = localException != null ? ("executeLocalTransactionBranch exception: " + localException.toString()) : null;
-        // 5、向 Broker 事务结束的请求，这个请求不用等待 Broker 回复。
+        // 5、向 Broker 事务结束的请求，这个 OneWay 方式的请求不用等待 Broker 回复。
         this.mQClientFactory.getMQClientAPIImpl().endTransactionOneway(brokerAddr, requestHeader, remark,
                 this.defaultMQProducer.getSendMsgTimeout());
     }

@@ -27,9 +27,13 @@ public class TransactionMQProducer extends DefaultMQProducer {
     private int checkThreadPoolMinSize = 1;
     private int checkThreadPoolMaxSize = 1;
     private int checkRequestHoldMax = 2000;
-
+    /**
+     * 复制执行本地事务回查的线程池，默认线程数为 1 。
+     */
     private ExecutorService executorService;
-
+    /**
+     * 事务监听器来执行本地事务和本地事务回查。
+     */
     private TransactionListener transactionListener;
 
     public TransactionMQProducer() {
@@ -80,6 +84,9 @@ public class TransactionMQProducer extends DefaultMQProducer {
         return this.defaultMQProducerImpl.sendMessageInTransaction(msg, tranExecuter, arg);
     }
 
+    /**
+     * 发送事务消息
+     */
     @Override
     public TransactionSendResult sendMessageInTransaction(final Message msg,
         final Object arg) throws MQClientException {
@@ -87,7 +94,7 @@ public class TransactionMQProducer extends DefaultMQProducer {
         if (null == this.transactionListener) {
             throw new MQClientException("TransactionListener is null", null);
         }
-        // 设置 topic
+        // 设置消息 topic，然后把消息发送到 Broker 。
         msg.setTopic(NamespaceUtil.wrapNamespace(this.getNamespace(), msg.getTopic()));
         return this.defaultMQProducerImpl.sendMessageInTransaction(msg, null, arg);
     }
@@ -110,6 +117,9 @@ public class TransactionMQProducer extends DefaultMQProducer {
 
     /**
      * This method will be removed in the version 5.0.0 and set a custom thread pool is recommended.
+     *
+     * 这个方法将在 5.0.0 版本被删除，推荐设置一个自定义的线程池。
+     *
      */
     @Deprecated
     public void setCheckThreadPoolMinSize(int checkThreadPoolMinSize) {

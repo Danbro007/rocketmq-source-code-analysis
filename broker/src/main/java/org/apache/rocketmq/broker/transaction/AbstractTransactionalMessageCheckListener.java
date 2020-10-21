@@ -33,6 +33,9 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * 事务消息回查监听器
+ */
 public abstract class AbstractTransactionalMessageCheckListener {
     private static final InternalLogger LOGGER = InternalLoggerFactory.getLogger(LoggerName.TRANSACTION_LOGGER_NAME);
 
@@ -58,6 +61,9 @@ public abstract class AbstractTransactionalMessageCheckListener {
         this.brokerController = brokerController;
     }
 
+    /**
+     * 向 Producer 发送回查事务的请求
+     */
     public void sendCheckMessage(MessageExt msgExt) throws Exception {
         CheckTransactionStateRequestHeader checkTransactionStateRequestHeader = new CheckTransactionStateRequestHeader();
         checkTransactionStateRequestHeader.setCommitLogOffset(msgExt.getCommitLogOffset());
@@ -77,6 +83,9 @@ public abstract class AbstractTransactionalMessageCheckListener {
         }
     }
 
+    /**
+     * 会开启一个线程来执行向 Producer 发送回查请求。
+     */
     public void resolveHalfMsg(final MessageExt msgExt) {
         executorService.execute(new Runnable() {
             @Override
@@ -101,6 +110,8 @@ public abstract class AbstractTransactionalMessageCheckListener {
     /**
      * Inject brokerController for this listener
      *
+     * 给 brokerController 注入当前 listener。
+     *
      * @param brokerController
      */
     public void setBrokerController(BrokerController brokerController) {
@@ -110,6 +121,8 @@ public abstract class AbstractTransactionalMessageCheckListener {
     /**
      * In order to avoid check back unlimited, we will discard the message that have been checked more than a certain
      * number of times.
+     *
+     * 为了避免无限制的回查，当回查超过一定次数我们将会抛弃这个消息。
      *
      * @param msgExt Message to be discarded.
      */

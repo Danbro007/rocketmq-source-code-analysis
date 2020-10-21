@@ -22,6 +22,9 @@ import org.apache.rocketmq.common.constant.LoggerName;
 import org.apache.rocketmq.logging.InternalLogger;
 import org.apache.rocketmq.logging.InternalLoggerFactory;
 
+/**
+ * 事务消息检查服务
+ */
 public class TransactionalMessageCheckService extends ServiceThread {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.TRANSACTION_LOGGER_NAME);
 
@@ -36,6 +39,9 @@ public class TransactionalMessageCheckService extends ServiceThread {
         return TransactionalMessageCheckService.class.getSimpleName();
     }
 
+    /**
+     * 每隔 60 秒执行一次回查
+     */
     @Override
     public void run() {
         log.info("Start transaction check service thread!");
@@ -46,12 +52,18 @@ public class TransactionalMessageCheckService extends ServiceThread {
         log.info("End transaction check service thread!");
     }
 
+    /**
+     * 真正执行事务回查的功能
+     */
     @Override
     protected void onWaitEnd() {
+        // 事务执行的超时时间，默认为 6 秒。
         long timeout = brokerController.getBrokerConfig().getTransactionTimeOut();
+        // 事务回查最大次数 15 次。
         int checkMax = brokerController.getBrokerConfig().getTransactionCheckMax();
         long begin = System.currentTimeMillis();
         log.info("Begin to check prepare message, begin time:{}", begin);
+        // 执行回查
         this.brokerController.getTransactionalMessageService().check(timeout, checkMax, this.brokerController.getTransactionalMessageCheckListener());
         log.info("End to check prepare message, consumed time:{}", System.currentTimeMillis() - begin);
     }

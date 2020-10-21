@@ -38,7 +38,7 @@ public class EndTransactionRequestHeader implements CommandCustomHeader {
     // TRANSACTION_ROLLBACK_TYPE
     // TRANSACTION_NOT_TYPE
     /**
-     * 判断是来源于Producer主动发的消息还是Broker主动检查返回的消息，这里只用来记录日志
+     * 判断是来源于Producer主动发的消息还是Broker主动检查返回的消息
      */
     @CFNullable
     private Boolean fromTransactionCheck = false;

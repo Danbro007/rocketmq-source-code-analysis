@@ -96,26 +96,34 @@ public class ClientRemotingProcessor extends AsyncNettyRequestProcessor implemen
         return false;
     }
 
+    /**
+     * 回查事务状态
+     */
     public RemotingCommand checkTransactionState(ChannelHandlerContext ctx,
         RemotingCommand request) throws RemotingCommandException {
         final CheckTransactionStateRequestHeader requestHeader =
             (CheckTransactionStateRequestHeader) request.decodeCommandCustomHeader(CheckTransactionStateRequestHeader.class);
         final ByteBuffer byteBuffer = ByteBuffer.wrap(request.getBody());
+        // 要回查的消息
         final MessageExt messageExt = MessageDecoder.decode(byteBuffer);
         if (messageExt != null) {
             if (StringUtils.isNotEmpty(this.mqClientFactory.getClientConfig().getNamespace())) {
                 messageExt.setTopic(NamespaceUtil
                     .withoutNamespace(messageExt.getTopic(), this.mqClientFactory.getClientConfig().getNamespace()));
             }
+            // 事务ID
             String transactionId = messageExt.getProperty(MessageConst.PROPERTY_UNIQ_CLIENT_MESSAGE_ID_KEYIDX);
             if (null != transactionId && !"".equals(transactionId)) {
                 messageExt.setTransactionId(transactionId);
             }
+            // PGROUP
             final String group = messageExt.getProperty(MessageConst.PROPERTY_PRODUCER_GROUP);
             if (group != null) {
+
                 MQProducerInner producer = this.mqClientFactory.selectProducer(group);
                 if (producer != null) {
                     final String addr = RemotingHelper.parseChannelRemoteAddr(ctx.channel());
+                    // 把回查事务状态的任务提交到线程池中
                     producer.checkTransactionState(addr, messageExt, requestHeader);
                 } else {
                     log.debug("checkTransactionState, pick producer by group[{}] failed", group);

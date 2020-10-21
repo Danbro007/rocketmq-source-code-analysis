@@ -40,7 +40,7 @@ public class ConsumerOffsetManager extends ConfigManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private static final String TOPIC_GROUP_SEPARATOR = "@";
     /**
-     * Key 为 ConsumerGroup，Value 为当前 ConsumeGroup 的消费进度。
+     * Key 为 ConsumerGroup，Value 为当前 ConsumeGroup 的消费进度，这个进度是指在 CommitLog 的 offset。
      */
     private ConcurrentMap<String/* topic@group */, ConcurrentMap<Integer, Long>> offsetTable =
         new ConcurrentHashMap<String, ConcurrentMap<Integer, Long>>(512);
@@ -144,9 +144,13 @@ public class ConsumerOffsetManager extends ConfigManager {
         }
     }
 
+    /**
+     * 查询指定 ConsumeQueue 的消费进度
+     */
     public long queryOffset(final String group, final String topic, final int queueId) {
         // topic@group
         String key = topic + TOPIC_GROUP_SEPARATOR + group;
+        // 查询 ConsumerGroup 下各个 Consumer 的消费进度
         ConcurrentMap<Integer, Long> map = this.offsetTable.get(key);
         if (null != map) {
             Long offset = map.get(queueId);

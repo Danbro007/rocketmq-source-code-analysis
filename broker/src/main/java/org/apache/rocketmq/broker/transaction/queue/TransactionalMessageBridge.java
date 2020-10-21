@@ -52,7 +52,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class TransactionalMessageBridge {
     private static final InternalLogger LOGGER = InnerLoggerFactory.getLogger(LoggerName.TRANSACTION_LOGGER_NAME);
-
+    /**
+     *
+     */
     private final ConcurrentHashMap<MessageQueue, MessageQueue> opQueueMap = new ConcurrentHashMap<>();
     private final BrokerController brokerController;
     private final MessageStore store;
@@ -72,6 +74,9 @@ public class TransactionalMessageBridge {
 
     }
 
+    /**
+     * 查询当前 MessageQueue 的 half 消息消费进度（在 MessageQueue 的 offset，不是 CommitLog 的 offset）
+     */
     public long fetchConsumeOffset(MessageQueue mq) {
         long offset = brokerController.getConsumerOffsetManager().queryOffset(TransactionalMessageUtil.buildConsumerGroup(),
             mq.getTopic(), mq.getQueueId());
@@ -109,8 +114,13 @@ public class TransactionalMessageBridge {
         return getMessage(group, topic, queueId, offset, nums, sub);
     }
 
+    /**
+     *  到 ConsumerGroup 为 CID_SYS_RMQ_TRANS、topic 为 RMQ_SYS_TRANS_OP_HALF_TOPIC 获取 half 消息。
+     */
     public PullResult getOpMessage(int queueId, long offset, int nums) {
+        // CID_SYS_RMQ_TRANS
         String group = TransactionalMessageUtil.buildConsumerGroup();
+        // RMQ_SYS_TRANS_OP_HALF_TOPIC
         String topic = TransactionalMessageUtil.buildOpTopic();
         SubscriptionData sub = new SubscriptionData(topic, "*");
         return getMessage(group, topic, queueId, offset, nums, sub);
@@ -193,7 +203,7 @@ public class TransactionalMessageBridge {
     }
 
     /**
-     * 把消息存储到 MessageStore 里，在存储之前会把消息进行解析和转换。
+     * 把 half 消息存储到磁盘中里，在存储之前会把消息进行解析和转换。
      */
     public PutMessageResult putHalfMessage(MessageExtBrokerInner messageInner) {
         return store.putMessage(parseHalfMessageInner(messageInner));
@@ -204,18 +214,21 @@ public class TransactionalMessageBridge {
     }
 
     /**
-     * 1、把消息的 REAL_TOPIC 设置为当前消息的 topic，REAL_QID 设置为消息的 QueueID。
-     *   这样是为了所有的 prepare 消息发送到同一个 topic 的同一个 Queue 上面。
+     * 1、把消息真实的 Topic 和 QueueId 放入 REAL_TOPIC 和 REAL_QID 里。
+     *   这样是为了防止 Consumer 消费到这条消息。
+     * 2、把消息的 topic 设置为 RMQ_SYS_TRANS_HALF_TOPIC，QueueId 设置为 0。
+     *   而 RMQ_SYS_TRANS_HALF_TOPIC 下面只有一个 Queue，所有的 half 消息都放在
+     *   这个 Queue 里。之后只要到这个 Queue 找 half 消息就可以。
      */
     private MessageExtBrokerInner parseHalfMessageInner(MessageExtBrokerInner msgInner) {
-        // 给消息设置属性，key 为 REAL_TOPIC，value 为消息的 topic。
+        // 给消息设置属性，属性名为 REAL_TOPIC，值为消息的 topic。
         MessageAccessor.putProperty(msgInner, MessageConst.PROPERTY_REAL_TOPIC, msgInner.getTopic());
-        // 给消息设置属性，key 为 REAL_QID ，value 为消息的 QueueID。
+        // 给消息设置属性，属性名为 REAL_QID ，值为消息的 QueueID。
         MessageAccessor.putProperty(msgInner, MessageConst.PROPERTY_REAL_QUEUE_ID,
             String.valueOf(msgInner.getQueueId()));
         msgInner.setSysFlag(
             MessageSysFlag.resetTransactionValue(msgInner.getSysFlag(), MessageSysFlag.TRANSACTION_NOT_TYPE));
-        // 给消息设置一个 topic ，名为 RMQ_SYS_TRANS_HALF_TOPIC，由于 Consumer 没有订阅这个 topic，所以此时 Consumer 还不能消费到。
+        // 给消息的 topic 设置为 RMQ_SYS_TRANS_HALF_TOPIC，由于 Consumer 没有订阅这个 topic，所以此时 Consumer 还不能消费到。
         msgInner.setTopic(TransactionalMessageUtil.buildHalfTopic());
         // 消息的 Queue 设置为 0
         msgInner.setQueueId(0);
@@ -224,6 +237,10 @@ public class TransactionalMessageBridge {
         return msgInner;
     }
 
+    /**
+     * 给已经被处理的 half 消息打上删除标记，并存到磁盘中。
+     * 存储的就是已经被处理的消息处理记录（已经 commit 或者 rollback 的消息）
+     */
     public boolean putOpMessage(MessageExt messageExt, String opType) {
 
         MessageQueue messageQueue = new MessageQueue(messageExt.getTopic(),
@@ -285,6 +302,9 @@ public class TransactionalMessageBridge {
         return msgInner;
     }
 
+    /**
+     * 把消息的 QueueID 设置为 OpQueue 的 QueueID。
+     */
     private MessageExtBrokerInner makeOpMessageInner(Message message, MessageQueue messageQueue) {
         MessageExtBrokerInner msgInner = new MessageExtBrokerInner();
         msgInner.setTopic(message.getTopic());
@@ -315,19 +335,30 @@ public class TransactionalMessageBridge {
     /**
      * Use this function while transaction msg is committed or rollback write a flag 'd' to operation queue for the
      * msg's offset
-     * 在事务消息被提交或回滚时，使用此函数为消息的 offset 向操作队列写入一个'd'标志
+     *
+     * 创建一个消息，消息内容是当前 half 消息的 QueueOffset，消息的 tag 为 “d”，这表示当前 half 消息是被删除的。
+     * 消息的 topic 为 RMQ_SYS_TRANS_OP_HALF_TOPIC。
+     * 创建完毕后会把 MessageQueue 和创建好的消息存到磁盘中。
+     *
      * @param messageExt Op message  prepare 消息
      * @param messageQueue Op message queue 存储 prepare 消息的消息队列
      * @return This method will always return true.
      */
     private boolean addRemoveTagInTransactionOp(MessageExt messageExt, MessageQueue messageQueue) {
-        // 生成一个消息，topic 是 RMQ_SYS_TRANS_OP_HALF_TOPIC，tag 是 “d”,内容是消息的 QueueOffset。
+        // 生成一个消息，topic 是 RMQ_SYS_TRANS_OP_HALF_TOPIC，tag 是 “d”,消息内容是当前消息的 QueueOffset。
         Message message = new Message(TransactionalMessageUtil.buildOpTopic(), TransactionalMessageUtil.REMOVETAG,
             String.valueOf(messageExt.getQueueOffset()).getBytes(TransactionalMessageUtil.charset));
+        // 把已经被处理消息在 halfQueue 的 QueueOffset 写到 OpQueue 里
         writeOp(message, messageQueue);
         return true;
     }
 
+    /**
+     * 1、到 opQueueMap 里获取 mq 对应的 opQueue，它们之间是一一对应的。
+     *  如果没的话则创建一个新的 topic 为 RMQ_SYS_TRANS_OP_HALF_TOPIC ，QueueId 为 mq 的 QueueID。
+     * 2、随后把消息与这个 opQueue 建立连接既消息的 QueueId 为 opQueue 的 QueueId。
+     * 3、存储到磁盘中，这个消息的 topic 是 RMQ_SYS_TRANS_OP_HALF_TOPIC ，QueueId 为 0。
+     */
     private void writeOp(Message message, MessageQueue mq) {
         MessageQueue opQueue;
         if (opQueueMap.containsKey(mq)) {
@@ -339,12 +370,16 @@ public class TransactionalMessageBridge {
                 opQueue = oldQueue;
             }
         }
+        // 在 RMQ_SYS_TRANS_OP_HALF_TOPIC 主题下创建一个新的 opQueue，QueueID 为 MessageQueue 的 ID。
         if (opQueue == null) {
             opQueue = new MessageQueue(TransactionalMessageUtil.buildOpTopic(), mq.getBrokerName(), mq.getQueueId());
         }
         putMessage(makeOpMessageInner(message, opQueue));
     }
 
+    /**
+     * 创建 half 消息队列对应的 OpQueue，这个 OpQueue 用来存储已经被处理的 half 消息。
+     */
     private MessageQueue getOpQueueByHalf(MessageQueue halfMQ) {
         MessageQueue opQueue = new MessageQueue();
         opQueue.setTopic(TransactionalMessageUtil.buildOpTopic());

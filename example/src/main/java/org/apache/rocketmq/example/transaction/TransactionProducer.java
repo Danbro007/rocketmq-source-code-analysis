@@ -31,12 +31,14 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 事务 生产者
+ * 事务消息生产者
  */
 public class TransactionProducer {
     public static void main(String[] args) throws MQClientException, InterruptedException {
         TransactionListener transactionListener = new TransactionListenerImpl();
         TransactionMQProducer producer = new TransactionMQProducer("please_rename_unique_group_name");
+
+        // 负责执行本地事务回查的线程池
         ExecutorService executorService = new ThreadPoolExecutor(2, 5, 100, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(2000), new ThreadFactory() {
             @Override
             public Thread newThread(Runnable r) {
@@ -49,9 +51,11 @@ public class TransactionProducer {
         producer.setExecutorService(executorService);
         // 本地事务监听器
         producer.setTransactionListener(transactionListener);
+        producer.setNamesrvAddr("127.0.0.1:9876");
         producer.start();
 
         String[] tags = new String[] {"TagA", "TagB", "TagC", "TagD", "TagE"};
+        // 发送 10 条消息
         for (int i = 0; i < 10; i++) {
             try {
                 Message msg =

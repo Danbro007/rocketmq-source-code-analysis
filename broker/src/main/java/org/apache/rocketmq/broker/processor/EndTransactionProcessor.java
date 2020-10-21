@@ -134,7 +134,7 @@ public class EndTransactionProcessor extends AsyncNettyRequestProcessor implemen
         OperationResult result = new OperationResult();
         // 1、如果是 commit 请求则会用 transactionalMessageService 来处理。
         if (MessageSysFlag.TRANSACTION_COMMIT_TYPE == requestHeader.getCommitOrRollback()) {
-            // 2、到 CommitLog 里找到这个 half 消息。
+            // 2、到 CommitLog 里通过消息的 offset 找到这个 half 消息。
             result = this.brokerController.getTransactionalMessageService().commitMessage(requestHeader);
             // 3、如果找到了则会这个 half 消息的属性和请求头的属性进行检查
             if (result.getResponseCode() == ResponseCode.SUCCESS) {
@@ -147,11 +147,11 @@ public class EndTransactionProcessor extends AsyncNettyRequestProcessor implemen
                     msgInner.setQueueOffset(requestHeader.getTranStateTableOffset());
                     msgInner.setPreparedTransactionOffset(requestHeader.getCommitLogOffset());
                     msgInner.setStoreTimestamp(result.getPrepareMessage().getStoreTimestamp());
-                    // 把 prepare 消息的 TRAN_MSG 属性删除
+                    // 把消息的 TRAN_MSG 属性删除
                     MessageAccessor.clearProperty(msgInner, MessageConst.PROPERTY_TRANSACTION_PREPARED);
-                    // 5、此时这个 half 消息已经是普通的消息了，存储到 Broker 里。
+                    // 5、此时这个 half 消息已经是普通的消息了，存储到 Broker 里，之后 Consumer 会消费它。
                     RemotingCommand sendResult = sendFinalMessage(msgInner);
-                    // 6、存储成功，把原来存储的 half 消息删除，这里的删除只是逻辑删除。
+                    // 6、存储成功，把原来存储的 half 消息标记为删除，这里的删除不是真正删除。
                     if (sendResult.getCode() == ResponseCode.SUCCESS) {
                         this.brokerController.getTransactionalMessageService().deletePrepareMessage(result.getPrepareMessage());
                     }
@@ -182,8 +182,7 @@ public class EndTransactionProcessor extends AsyncNettyRequestProcessor implemen
     }
 
     /**
-     * 先把 half 的属性和请求头的属性进行匹配检查,都通过检查则返回 SUCCESS，否则返回 SYSTEM_ERROR 。
-     * @return
+     * 先把 half 的属性和请求头的属性进行检查比对,都通过检查则返回 SUCCESS，否则返回 SYSTEM_ERROR 。
      */
     private RemotingCommand checkPrepareMessage(MessageExt msgExt, EndTransactionRequestHeader requestHeader) {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
@@ -216,6 +215,9 @@ public class EndTransactionProcessor extends AsyncNettyRequestProcessor implemen
         return response;
     }
 
+    /**
+     * 把消息原来存储的两个 REAL_TOPIC 和 REAL_QID 的属性值还原为消息真实 topic 和 QueueId
+     */
     private MessageExtBrokerInner endMessageTransaction(MessageExt msgExt) {
         MessageExtBrokerInner msgInner = new MessageExtBrokerInner();
         msgInner.setTopic(msgExt.getUserProperty(MessageConst.PROPERTY_REAL_TOPIC));
@@ -236,6 +238,7 @@ public class EndTransactionProcessor extends AsyncNettyRequestProcessor implemen
         msgInner.setTagsCode(tagsCodeValue);
         MessageAccessor.setProperties(msgInner, msgExt.getProperties());
         msgInner.setPropertiesString(MessageDecoder.messageProperties2String(msgExt.getProperties()));
+        // 清空 REAL_TOPIC 和 REAL_QID 属性
         MessageAccessor.clearProperty(msgInner, MessageConst.PROPERTY_REAL_TOPIC);
         MessageAccessor.clearProperty(msgInner, MessageConst.PROPERTY_REAL_QUEUE_ID);
         return msgInner;

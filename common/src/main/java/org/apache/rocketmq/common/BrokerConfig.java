@@ -172,10 +172,10 @@ public class BrokerConfig {
     private int transactionCheckMax = 15;
 
     /**
-     * Transaction message check interval.
+     * Transaction message check interval. 事务回查间隔，默认为 60 秒。
      */
     @ImportantField
-    private long transactionCheckInterval = 60 * 1000;
+    private long transactionCheckInterval = 6 * 1000;
 
     /**
      * Acl feature switch

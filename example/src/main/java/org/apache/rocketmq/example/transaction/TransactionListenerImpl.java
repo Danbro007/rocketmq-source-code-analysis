@@ -32,6 +32,9 @@ public class TransactionListenerImpl implements TransactionListener {
 
     private ConcurrentHashMap<String, Integer> localTrans = new ConcurrentHashMap<>();
 
+    /**
+     * 执行本地事务
+     */
     @Override
     public LocalTransactionState executeLocalTransaction(Message msg, Object arg) {
         int value = transactionIndex.getAndIncrement();
@@ -40,6 +43,9 @@ public class TransactionListenerImpl implements TransactionListener {
         return LocalTransactionState.UNKNOW;
     }
 
+    /**
+     * 本地事务回查
+     */
     @Override
     public LocalTransactionState checkLocalTransaction(MessageExt msg) {
         Integer status = localTrans.get(msg.getTransactionId());
