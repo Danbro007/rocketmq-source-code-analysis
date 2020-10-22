@@ -95,13 +95,13 @@ public class MQFaultStrategy {
                             return mq;
                     }
                 }
-                //说明现在 Broker 都是不可用的，只能到从所有 Broker 中选择一个相对可用的 Broker 并且是可写的。
+                //说明现在 Broker 都是不可用的，只能到所有 Broker 中选择一个相对可用的 Broker 并且是可写的。
                 final String notBestBroker = latencyFaultTolerance.pickOneAtLeast();
                 //获得 Broker 的写队列数
                 int writeQueueNums = tpInfo.getQueueIdByBroker(notBestBroker);
                 // 写队列 > 0 说明是支持写入的
                 if (writeQueueNums > 0) {
-                    //获得一个消息队列,给这个消息队列指定 brokerName 和队列ID 并返回
+                    //获得一个消息队列,给这个消息队列指定 brokerName 和 QueueID 并返回
                     final MessageQueue mq = tpInfo.selectOneMessageQueue();
                     if (notBestBroker != null) {
                         mq.setBrokerName(notBestBroker);
@@ -115,7 +115,7 @@ public class MQFaultStrategy {
             } catch (Exception e) {
                 log.error("Error occurred when selecting message queue", e);
             }
-            // 前面都没找到就找下一个消息队列
+            // 前面都没找到就继续找下一个消息队列
             return tpInfo.selectOneMessageQueue();
         }
         // 没有开启 Broker 的故障延迟机制则直接选下一个 Broker

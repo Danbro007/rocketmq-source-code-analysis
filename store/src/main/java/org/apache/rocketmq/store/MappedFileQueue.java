@@ -361,7 +361,10 @@ public class MappedFileQueue {
 
         }
     }
-    // 通过过期时间来删除过期文件
+
+    /**
+     * 通过过期时间来删除过期文件
+     */
     public int deleteExpiredFileByTime(final long expiredTime,
         final int deleteFilesInterval,
         final long intervalForcibly,

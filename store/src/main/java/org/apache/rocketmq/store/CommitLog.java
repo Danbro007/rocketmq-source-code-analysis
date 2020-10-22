@@ -152,8 +152,8 @@ public class CommitLog {
      * @param deleteFilesInterval 删除两个文件的时间间隔
      * @param intervalForcibly    强制删除时间间隔
      * @param cleanImmediately    是否立即删除文件标志位
-     * @return
-     */
+     * @return 删除的文件数
+      */
     public int deleteExpiredFile(
             final long expiredTime,
             final int deleteFilesInterval,

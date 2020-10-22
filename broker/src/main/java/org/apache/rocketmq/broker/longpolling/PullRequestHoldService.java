@@ -83,7 +83,7 @@ public class PullRequestHoldService extends ServiceThread {
         log.info("{} service started", this.getServiceName());
         while (!this.isStopped()) {
             try {
-                // 如果开启了长轮询会则会每隔 5000 ms 检查一次消息是否到达，没有开启的话则会每隔 1000 ms 检查。
+                // 如果开启了长轮询会则会每隔 5 秒 检查一次消息是否到达，没有开启的话则会每隔 1 秒检查。
                 if (this.brokerController.getBrokerConfig().isLongPollingEnable()) {
                     this.waitForRunning(5 * 1000);
                 } else {

@@ -570,11 +570,6 @@ public class DefaultMQProducerImpl implements MQProducerInner {
      * @param communicationMode 发送模式，同步还是异步
      * @param sendCallback 异步需要的回调函数
      * @param timeout 超时时间
-     * @return
-     * @throws MQClientException
-     * @throws RemotingException
-     * @throws MQBrokerException
-     * @throws InterruptedException
      */
     private SendResult sendDefaultImpl(
             Message msg,
@@ -589,7 +584,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         long beginTimestampFirst = System.currentTimeMillis();
         long beginTimestampPrev = beginTimestampFirst;
         long endTimestamp = beginTimestampFirst;
-        // 通过主题名查找路由消息
+        // 通过主题名在本地缓存查找路由消息
         TopicPublishInfo topicPublishInfo = this.tryToFindTopicPublishInfo(msg.getTopic());
         // 路由信息存在并且里面的消息队列不为空
         if (topicPublishInfo != null && topicPublishInfo.ok()) {

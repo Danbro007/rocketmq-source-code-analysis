@@ -1702,6 +1702,9 @@ public class DefaultMessageStore implements MessageStore {
         }
     }
 
+    /**
+     * 清理磁盘上消息的服务
+     */
     class CleanCommitLogService {
 
         private final static int MAX_MANUAL_DELETE_FILE_TIMES = 20;
@@ -1716,6 +1719,9 @@ public class DefaultMessageStore implements MessageStore {
 
         private volatile boolean cleanImmediately = false;
 
+        /**
+         * 手动执行删除
+         */
         public void excuteDeleteFilesManualy() {
             this.manualDeleteFileSeveralTimes = MAX_MANUAL_DELETE_FILE_TIMES;
             DefaultMessageStore.log.info("executeDeleteFilesManually was invoked");
@@ -1731,7 +1737,10 @@ public class DefaultMessageStore implements MessageStore {
                 DefaultMessageStore.log.warn(this.getServiceName() + " service has exception. ", e);
             }
         }
-        // 真正执行清理过期文件
+
+        /**
+         *  执行清理过期文件
+         */
         private void deleteExpiredFiles() {
             int deleteCount = 0;
             // 获取文件的存活时间，默认为 72 小时
@@ -1762,7 +1771,7 @@ public class DefaultMessageStore implements MessageStore {
                     cleanAtOnce);
                 // 文件保留的时间
                 fileReservedTime *= 60 * 60 * 1000;
-                //
+                // 执行删除
                 deleteCount = DefaultMessageStore.this.commitLog.deleteExpiredFile(fileReservedTime, deletePhysicFilesInterval,
                     destroyMapedFileIntervalForcibly, cleanAtOnce);
                 if (deleteCount > 0) {
@@ -1792,6 +1801,9 @@ public class DefaultMessageStore implements MessageStore {
             return CleanCommitLogService.class.getSimpleName();
         }
 
+        /**
+         * 判断是不是到每天的删除文件的时间
+         */
         private boolean isTimeToDelete() {
             // 定时删除文件的时间，默认为每天凌晨 4 点
             String when = DefaultMessageStore.this.getMessageStoreConfig().getDeleteWhen();

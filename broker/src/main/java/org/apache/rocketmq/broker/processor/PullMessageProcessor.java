@@ -441,7 +441,7 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
                     if (brokerAllowSuspend && hasSuspendFlag) {
                         // 轮询时间
                         long pollingTimeMills = suspendTimeoutMillisLong;
-                        // 如果没有开启长轮询则设置长轮询时间为 1000 ms
+                        // 如果没有开启长轮询则设置默认的长轮询时间，时间为 1 秒。
                         if (!this.brokerController.getBrokerConfig().isLongPollingEnable()) {
                             pollingTimeMills = this.brokerController.getBrokerConfig().getShortPollingTimeMills();
                         }
@@ -451,7 +451,7 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
                         int queueId = requestHeader.getQueueId();
                         PullRequest pullRequest = new PullRequest(request, channel, pollingTimeMills,
                             this.brokerController.getMessageStore().now(), offset, subscriptionData, messageFilter);
-                        // 每个 1000 ms 会轮询一次处理拉取请求
+                        // 每个 1 秒会轮询一次处理拉取请求
                         this.brokerController.getPullRequestHoldService().suspendPullRequest(topic, queueId, pullRequest);
                         response = null;
                         break;
