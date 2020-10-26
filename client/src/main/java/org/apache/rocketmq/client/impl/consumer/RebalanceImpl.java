@@ -235,7 +235,7 @@ public abstract class RebalanceImpl {
     /**
      * 执行负载均衡的操作
      * 对每个主题下的消息队列进行一次负载均衡，重新分配消息队列。
-     * @param isOrder 是否有序
+     * @param isOrder 是否顺序消费
      */
     public void doRebalance(final boolean isOrder) {
         Map<String, SubscriptionData> subTable = this.getSubscriptionInner();
